@@ -186,14 +186,27 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         DashKeepAliveService.start(getApplication())
         location.start()
         startRecording()
+
+        // We must know the EXACT dash SSID before connecting — the dash validates it inside
+        // the encrypted auth handshake (DashAuth), and Android redacts the SSID of a network
+        // we've already joined. So if we don't have it stored, find it from a WiFi scan.
+        if (dashConfig.needsDiscovery) {
+            wifiManager.findDashSsid(dashConfig.ssidPrefix)?.let { found ->
+                dashConfig.ssid = found
+                _ui.value = _ui.value.copy(ssid = found)
+            }
+        }
+
         when {
             wifiManager.state.value.status == WifiConnStatus.CONNECTED ->
                 session.connect(_ui.value.ssid, wifiManager.network)
-            // First time on this dash: connect to any RE_* network by prefix and learn it.
-            dashConfig.needsDiscovery ->
-                wifiManager.connect(dashConfig.ssidPrefix, dashConfig.password, prefixMatch = true)
-            else ->
+            // Known SSID (stored or just found by scan) → exact connect + correct auth.
+            dashConfig.ssid.isNotBlank() ->
                 wifiManager.connect(dashConfig.ssid, dashConfig.password)
+            // Couldn't find it in scan results — fall back to prefix discovery so we at
+            // least associate (auth may still need the SSID; a rescan usually fixes it).
+            else ->
+                wifiManager.connect(dashConfig.ssidPrefix, dashConfig.password, prefixMatch = true)
         }
     }
 

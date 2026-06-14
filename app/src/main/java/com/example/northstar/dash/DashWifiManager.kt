@@ -1,11 +1,13 @@
 package com.example.northstar.dash
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.PatternMatcher
 import android.util.Log
@@ -66,6 +68,7 @@ class DashWifiManager(
     private var pendingSsid = ""
     private var pendingPassword = ""
     private var pendingPrefix = false
+    private var resolvedSsid: String? = null
 
     /**
      * When we connect by prefix (any RE_* dash), the exact SSID is only known once the
@@ -88,7 +91,25 @@ class DashWifiManager(
         pendingSsid      = ssid
         pendingPassword  = password
         pendingPrefix    = prefixMatch
+        resolvedSsid     = null
         requestNetwork()
+    }
+
+    /**
+     * Find a dash SSID from the latest WiFi scan results (any network whose name starts
+     * with [prefix], e.g. "RE_"). We need the EXACT SSID string up front because the dash
+     * validates it inside the encrypted auth handshake — and Android 13+ redacts the SSID
+     * of the connected network, so we can't read it back after connecting.
+     */
+    @SuppressLint("MissingPermission")
+    fun findDashSsid(prefix: String): String? = try {
+        val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        wifi.scanResults
+            .mapNotNull { it.SSID?.trim('"')?.takeIf { s -> s.isNotBlank() } }
+            .firstOrNull { it.startsWith(prefix) }
+            .also { Log.i(TAG, "Scan lookup for '$prefix*' → ${it ?: "not found"}") }
+    } catch (e: Exception) {
+        Log.w(TAG, "Scan lookup failed: ${e.message}"); null
     }
 
     fun disconnect() {
@@ -121,12 +142,27 @@ class DashWifiManager(
             override fun onAvailable(network: Network) {
                 this@DashWifiManager.network = network
                 reconnectJob?.cancel()
-                // If we connected by prefix, learn the dash's actual SSID so future
-                // connects target it directly (and so we can persist it for this rider).
+                // SSID is read in onCapabilitiesChanged (transportInfo isn't populated here
+                // yet on Android 13+). Try once anyway, else fall back to the pending value.
                 val resolved = resolveSsid(network).takeIf { it.isNotBlank() } ?: pendingSsid
                 Log.i(TAG, "WiFi connected ✓  ssid='$resolved' network=$network")
-                if (pendingPrefix && resolved != pendingSsid) onSsidResolved?.invoke(resolved)
+                if (resolved.isNotBlank() && resolved != pendingSsid) onSsidResolved?.invoke(resolved)
                 _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = resolved)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                // Canonical place to read the connected SSID — REQUIRED for auth, since the
+                // dash validates the SSID inside the encrypted handshake (DashAuth). Without
+                // the real SSID (prefix-discovery), every auth is rejected.
+                val info = caps.transportInfo as? WifiInfo ?: return
+                val ssid = info.ssid.orEmpty().trim('"')
+                if (ssid.isBlank() || ssid == WifiManagerUnknownSsid) return
+                if (ssid == resolvedSsid) return
+                resolvedSsid = ssid
+                this@DashWifiManager.network = network
+                Log.i(TAG, "Resolved dash SSID: '$ssid'")
+                onSsidResolved?.invoke(ssid)
+                _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = ssid)
             }
 
             override fun onUnavailable() {

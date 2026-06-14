@@ -74,14 +74,28 @@ class DashSocket(private val network: android.net.Network? = null) : AutoCloseab
     fun send(data: ByteArray) {
         val pkt = K1GPacket.patchSeq(data, seq.getAndIncrement())
         Log.d(TAG, "TX →$BROADCAST:$CTRL_PORT  ${pkt.size}B  ${pkt.hex()}")
-        txSocket.send(DatagramPacket(pkt, pkt.size, broadcastAddr, CTRL_PORT))
+        // UDP fire-and-forget: a dropped/unreachable link (ENETUNREACH, EBADF) must never
+        // crash the app — the session will fail and reconnect.
+        try {
+            txSocket.send(DatagramPacket(pkt, pkt.size, broadcastAddr, CTRL_PORT))
+        } catch (e: Exception) {
+            Log.w(TAG, "TX send failed (link down?): ${e.message}")
+        }
     }
 
     fun sendRtp(data: ByteArray) {
-        rtpSocket.send(DatagramPacket(data, data.size, dashAddr, RTP_PORT))
+        try {
+            rtpSocket.send(DatagramPacket(data, data.size, dashAddr, RTP_PORT))
+        } catch (e: Exception) {
+            Log.d(TAG, "RTP send failed (link down?): ${e.message}")
+        }
     }
 
-    /** Blocks up to RECV_TIMEOUT_MS; returns null on timeout. */
+    /**
+     * Blocks up to RECV_TIMEOUT_MS; returns null on timeout. Throws on a genuine socket
+     * error (closed/unreachable) — the caller's receive loop catches it and ends the
+     * session instead of letting the exception crash the whole app.
+     */
     suspend fun receive(): ByteArray? = withContext(Dispatchers.IO) {
         val buf = DatagramPacket(ByteArray(BUF), BUF)
         return@withContext try {

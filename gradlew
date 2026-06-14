@@ -250,20 +250,31 @@ eval "set -- $(
 
 # Ensure all init scripts passed with -I exist to prevent Gradle from failing early
 # This fixes a recurring issue with Android Studio's ijMapper scripts in /tmp
-# We use a more aggressive match to catch combined or malformed arguments
-for _arg in "$@"; do
+# This version is more robust against combined arguments and shell variations
+_idx=1
+while [ $_idx -le $# ]; do
+    eval "_arg=\${$_idx}"
     case "$_arg" in
-        *"/tmp/ijMapper"*.gradle*)
-            # Extract path if it's like -I/tmp/ijMapper1.gradle
-            _path=$(echo "$_arg" | sed 's/.*-I//;s/.*--init-script=//')
-            if [ -n "$_path" ] && [ "${_path#/tmp/}" != "$_path" ]; then
-                if [ ! -f "$_path" ]; then
-                    mkdir -p /tmp 2>/dev/null
-                    touch "$_path" 2>/dev/null
-                fi
-            fi
+        -I)
+            _next_idx=$((_idx + 1))
+            eval "_val=\${$_next_idx}"
+            case "$_val" in /tmp/*.gradle) [ ! -f "$_val" ] && touch "$_val" 2>/dev/null ;; esac
+            ;;
+        --init-script)
+            _next_idx=$((_idx + 1))
+            eval "_val=\${$_next_idx}"
+            case "$_val" in /tmp/*.gradle) [ ! -f "$_val" ] && touch "$_val" 2>/dev/null ;; esac
+            ;;
+        -I/tmp/*.gradle)
+            _val="${_arg#-I}"
+            [ ! -f "$_val" ] && touch "$_val" 2>/dev/null
+            ;;
+        --init-script=/tmp/*.gradle)
+            _val="${_arg#--init-script=}"
+            [ ! -f "$_val" ] && touch "$_val" 2>/dev/null
             ;;
     esac
+    _idx=$((_idx + 1))
 done
 
 exec "$JAVACMD" "$@"

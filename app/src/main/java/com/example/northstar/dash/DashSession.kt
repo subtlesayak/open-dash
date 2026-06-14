@@ -201,7 +201,17 @@ class DashSession(private val scope: CoroutineScope) {
     private fun launchReceiveLoop(sock: DashSocket) {
         rxJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
-                val pkt = sock.receive() ?: continue
+                val pkt = try {
+                    sock.receive()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Link dropped (EBADF/ENETUNREACH) — end the loop cleanly instead of
+                    // crashing the app; DashWifiManager handles reconnect.
+                    Log.w(TAG, "RX loop stopped — socket error: ${e.message}")
+                    onError?.invoke("Lost connection to dash")
+                    break
+                } ?: continue
                 dispatchIncoming(pkt, sock)
             }
         }
