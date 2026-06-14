@@ -67,9 +67,10 @@ class MapRenderer(private val tiles: TileProvider) {
     private val standbyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(60, 64, 67); textSize = 22f; isFakeBoldText = true }
 
     // ETA pill (drawn in screen space, bottom-centre, inside the round safe zone)
-    private val etaBgPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(225, 13, 15, 17) }
-    private val etaBigPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 34f; isFakeBoldText = true; textAlign = Paint.Align.CENTER }
-    private val etaSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 204, 208); textSize = 19f; textAlign = Paint.Align.CENTER }
+    private val etaBgPaint     = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(232, 20, 22, 26) }
+    private val etaBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(46, 255, 255, 255); style = Paint.Style.STROKE; strokeWidth = 1.5f }
+    private val etaBigPaint    = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(126, 217, 87); textSize = 27f; isFakeBoldText = true; textAlign = Paint.Align.CENTER }   // Google-nav green
+    private val etaSmallPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(196, 201, 208); textSize = 16f; textAlign = Paint.Align.CENTER }
 
     // Reused across frames
     private val routePath = Path()
@@ -180,23 +181,30 @@ class MapRenderer(private val tiles: TileProvider) {
         if (rotate) canvas.restore()
 
         // ── ETA pill (screen-space so it stays upright; bottom-centre safe zone) ──
-        // The dash is round, so we keep it narrow and centred where the circle is widest.
+        // The dash is round, so it's kept narrow and centred. Shows ETA only (time +
+        // arrival clock) — distance lives on the dash's own widget.
         f.etaPrimary?.let { primary ->
             val secondary = f.etaSecondary
-            etaBigPaint.getTextBounds(primary, 0, primary.length, textBounds)
-            var pillW = textBounds.width().toFloat()
-            if (secondary != null) pillW = maxOf(pillW, etaSmallPaint.measureText(secondary))
-            pillW = (pillW + 44f).coerceAtMost(w * 0.62f)
-            val pillH = if (secondary != null) 62f else 46f
+            val padH = 24f; val padV = 11f; val gap = 2f
+            val bigFm = etaBigPaint.fontMetrics
+            val smallFm = etaSmallPaint.fontMetrics
+            val bigH = bigFm.descent - bigFm.ascent
+            val smallH = if (secondary != null) smallFm.descent - smallFm.ascent else 0f
+            val contentW = maxOf(etaBigPaint.measureText(primary), secondary?.let { etaSmallPaint.measureText(it) } ?: 0f)
+            val pillW = (contentW + padH * 2).coerceAtMost(w * 0.6f)
+            val pillH = padV * 2 + bigH + (if (secondary != null) gap + smallH else 0f)
             val cxp = w / 2f
-            val bottom = h - 22f
-            pillRect.set(cxp - pillW / 2f, bottom - pillH, cxp + pillW / 2f, bottom)
-            canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, etaBgPaint)
+            val bottom = h - 26f
+            val top = bottom - pillH
+            pillRect.set(cxp - pillW / 2f, top, cxp + pillW / 2f, bottom)
+            val r = pillH / 2f
+            canvas.drawRoundRect(pillRect, r, r, etaBgPaint)
+            canvas.drawRoundRect(pillRect, r, r, etaBorderPaint)
+            var baseline = top + padV - bigFm.ascent
+            canvas.drawText(primary, cxp, baseline, etaBigPaint)
             if (secondary != null) {
-                canvas.drawText(primary, cxp, bottom - pillH + 30f, etaBigPaint)
-                canvas.drawText(secondary, cxp, bottom - 14f, etaSmallPaint)
-            } else {
-                canvas.drawText(primary, cxp, bottom - 13f, etaBigPaint)
+                baseline += bigFm.descent + gap - smallFm.ascent
+                canvas.drawText(secondary, cxp, baseline, etaSmallPaint)
             }
         }
 

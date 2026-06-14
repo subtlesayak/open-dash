@@ -549,11 +549,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         val navingToDest = destLat != null && destLng != null
         val etaPrimary = if (navingToDest && mins != null)
             (if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "$mins min") else null
-        val etaSecondary = if (etaPrimary != null) {
-            val arrival = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-                .format(java.util.Date(System.currentTimeMillis() + (mins!! * 60_000L)))
-            val dist = remainingM?.let { fmtDist(it) }
-            listOfNotNull(dist, arrival).joinToString(" · ")
+        // ETA only — no distance (the dash's own widget shows distance).
+        val etaSecondary = if (etaPrimary != null && mins != null) {
+            "arrives " + java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(System.currentTimeMillis() + (mins * 60_000L)))
         } else null
         val frame = MapRenderer.Frame(
             centerLat = centerLat,
