@@ -95,11 +95,15 @@ Google-Maps-styled map streamed to the dash.
   type from the Maps app (pins, businesses, dropped pins, `geo:`, plus-codes) and
   fix any gaps. This is the last unproven link in the chain.
 
-### P1b — DASH → APP TELEMETRY SYNC (bidirectional integration)
+### P1b — DASH → APP TELEMETRY SYNC — ⏸ LIKELY DEAD (code KEPT, confirm after root)
 
-The Tripper dash sends data to the phone on UDP/2002 (the same RX path we already
-parse for buttons + IDR acks). Bring the bike's live data into Northstar so the
-app stays in sync with the dash.
+Evidence so far (live capture, fw 11.63): the dash sends only plaintext type-0x0C
+fields that stay **all-zero even with the ignition on** (screen showed ODO 324/413 km
+but forwarded nothing), and zero 0x0F packets — i.e. it does NOT appear to forward
+instrument data to a projection client. BUT: per the rider, **keep the telemetry
+decode/logging alive** (`DashSession` 0F AES-decrypt + 0C raw logging stay in) so we can
+**definitively confirm dead-or-alive against the official-app capture once the phone is
+rooted**. Do not delete this path until that capture is done.
 
 - [~] **Decode the dash's telemetry segments.** Confirmed vs better-dash: the bike's
   instrument data arrives as **type-0F segments, AES-256-CBC encrypted** under the
@@ -126,12 +130,13 @@ app stays in sync with the dash.
   `AppNavigation` now derives `conn` from the real `DashViewModel.ui.stage`
   (STREAMING→Connected, WIFI/AUTH→Searching, else Offline) for Home + Settings,
   instead of `AppViewModel.conn`'s hardcoded `Connected`.
-- [ ] **Home screen live data.** Hero card hardcodes "RE-HIM-450 / 2.4 GHz / GPS
-  Strong / Phone 74%". Wire to real connection, GPS, and battery; or remove.
+- [x] **Home screen live data.** The fake stat tiles ("GPS Strong / 74% / 2.4 GHz")
+  are gone; the hero shows the real `conn` state (Connected/Searching/Offline) + a
+  "Himalayan 450" chip. No hardcoded telemetry remains.
 - [x] **Bottom nav: selected icon sits lower than the rest.** Fixed — icon slot is
   now a fixed 29 dp height with the icon top-aligned and the dot bottom-aligned.
-- [ ] **Recent destinations are hardcoded** (Chitkul, Jalori) — populate from real
-  shared/visited history once persistence exists (P3).
+- [x] **Recent destinations are hardcoded** (Chitkul, Jalori) — removed; Home now
+  lists real **saved destinations** from `RouteViewModel.saved` (tap → load + route).
 
 ## P3 — PERSISTENCE & SYNC (foundation; CLAUDE.md promises this, none exists)
 
@@ -150,24 +155,67 @@ the action buttons are no-ops. CLAUDE.md specifies SQLite source-of-truth + Fire
 
 ## P4 — SECONDARY RIDE FEATURES
 
-- [ ] **Telemetry / ride recording.** Actually record GPS tracks during a ride
-  (distance, duration, avg speed, map snapshot) and persist; RidesScreen is 100%
-  static mock right now.
-- [ ] **TTS / voice overlay (off / chime / full).** RouteScreen has the segmented
-  toggle UI but there is no `TextToSpeech` engine wired. Implement per-trip voice.
-- [ ] **Media controls overlay.** Now-playing rendered into our own video frame
-  (display + reject calls only, per Android limits). Not started.
+- [x] **Ride recording.** A connect→disconnect dash session = one ride. `RideRecorder`
+  accumulates the GPS track (thinned to ~8 m) into distance / duration / avg+max speed +
+  an encoded track polyline; saved via `SyncRepository` (local + Firestore `rides/`) on
+  disconnect (trivial sessions discarded). `RidesScreen` shows totals + per-ride cards
+  with a track sketch, stats, and delete; `RidesViewModel` reloads on sync. DB v4.
+- [x] **TTS / voice overlay (off / chime / full).** `dash/nav/VoiceManager` (singleton,
+  persisted mode) wired to the RouteScreen toggle + the nav loop. FULL speaks turns
+  ("In 200 meters, turn left") via `TextToSpeech`; CHIME beeps before each turn
+  (`ToneGenerator`); OFF silent. De-duped per maneuver (far ~450 m + near ~60 m) + arrival.
+  Note: spoken turn TYPE depends on the unverified glyph→type map; distances are correct.
+- [x] **Glanceable ETA on the dash map.** `MapRenderer` draws an upright ETA pill at the
+  bottom-centre safe zone (round-display-aware), big "24 min" + "18 km · 13:32" below,
+  shown only while navigating to a destination. Fed from the live nav figures.
+- [→] **Media controls overlay → DEFERRED to post-root.** The dash has its OWN separate
+  media/phone section; how it talks to the phone is unknown until we capture it on the
+  rooted phone. Decide the design (and whether to overlay vs use the dash's section) AFTER
+  the root capture. Moved out of Part A. (Android also blocks programmatic call answer/end.)
 
 ## P5 — GARAGE (LOWEST PRIORITY, do last)
 
 - [x] **Maintenance log** — DB-backed `MaintenanceTab`: seeded intervals, "most
   urgent" hero, per-item due/overdue from the real odometer, mark-done + add/delete
-  interval. (Reminders/notifications still pending.)
+  interval. **Reminders done**: `MaintenanceNotifier` posts a notification when an item
+  crosses into "due" (within 25% of interval), de-duped, checked on app open + after any
+  odometer/service edit.
 - [x] **Fuel diary** — DB-backed `FuelTab`: add/delete fill-ups, computed per-fill
   km/l (odometer-gap), 30-day avg efficiency + spend + litres, bar chart from real
-  data. (Firestore sync still pending.)
+  data. **Firestore sync done** (`SyncRepository`).
 
 ---
+
+## Distribution (decided 2026-06-14: ship to other Himalayan riders, free for the author)
+
+Direction: **open-source + bring-your-own-keys**, with genuinely-free defaults so a
+rider needs zero paid setup. The author never pays regardless of how many install it.
+
+- [x] **Multi-SSID / multi-dash.** No more hardcoded `RE_P0RP_260525`. `DashConfig`
+  (per-rider, persisted) + prefix discovery: first connect matches any `RE_*` dash
+  (`WifiNetworkSpecifier.setSsidPattern(PREFIX)`), then learns + remembers that rider's
+  exact SSID. Password defaults to factory `12345678`; all overridable.
+- [ ] **Settings UI for the dash WiFi** (view/edit SSID + password, "Forget dash" to
+  re-discover). Backing VM methods exist (`setSsid/setWifiPassword/forgetDash`).
+- [~] **MapLibre + OSM migration.** Decided: **OpenFreeMap** (keyless vector, look-first;
+  Liberty style), offline region download as a LATER add-on.
+  - [x] **In-app map → MapLibre + OpenFreeMap.** `NorthstarMap` rewritten on `MapView`
+    (route line via LineManager, dest/rider symbols via SymbolManager, follow/nav/fit-route
+    cameras). **Google Maps SDK fully removed** — dropped `maps-compose` +
+    `play-services-maps`, the `MAPS_API_KEY` manifest meta-data + build wiring. No Maps key
+    needed anymore. (APK grew ~26→70 MB from MapLibre native .so; trim later via ABI splits.)
+  - [ ] **Streamed dash basemap → keyless.** `TileProvider` still pulls the *unofficial
+    Google* raster tiles (not redistributable). The dash uses the power-tuned Canvas→H.264
+    pipeline; moving it to OpenFreeMap means rendering vector via MapLibre (MapSnapshotter or
+    offscreen GL) with change-detection caching to protect thermals. The power-sensitive part.
+  - [ ] **Routing off the OSRM demo server.** `Router` uses `router.project-osrm.org` (no
+    SLA, rate-limited). Move to a free/self-hosted routing source for distribution.
+- [x] **Firebase optional / bring-your-own.** The Google Services plugin is applied only
+  when `app/google-services.json` exists (verified: build succeeds without it). `FirebaseGate`
+  gates all access; `SyncRepository` fs/auth are null when unconfigured (everything no-ops →
+  fully local). `AuthViewModel` is crash-safe + exposes `syncAvailable`. LoginScreen offers
+  "Continue without signing in" (always) and hides Google sign-in when unconfigured; Settings
+  shows local-only / not-signed-in / synced. A rider who omits the json runs 100% local.
 
 ## Cross-cutting / housekeeping
 

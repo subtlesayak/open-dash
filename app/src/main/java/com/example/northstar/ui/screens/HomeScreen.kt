@@ -19,16 +19,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.northstar.ui.NorthstarIcons
 import com.example.northstar.ui.components.*
 import com.example.northstar.ui.theme.*
 import com.example.northstar.viewmodel.ConnectionState
+import com.example.northstar.viewmodel.RouteViewModel
 
 @Composable
 fun HomeScreen(
     conn: ConnectionState,
     onNavigate: (String) -> Unit,
+    routeViewModel: RouteViewModel = viewModel(),
 ) {
+    val saved by routeViewModel.saved.collectAsState()
     val status = when (conn) {
         ConnectionState.Connected -> Triple("Connected", "Streaming to Tripper Dash", Gold)
         ConnectionState.Searching -> Triple("Searching…", "Looking for Tripper Dash", Warn)
@@ -99,41 +103,8 @@ fun HomeScreen(
                     Spacer(Modifier.height(12.dp))
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        NorthstarChip("RE-HIM-450", ChipTone.Gold, icon = NorthstarIcons.Bt)
-                        if (conn == ConnectionState.Connected) {
-                            NorthstarChip("2.4 GHz", ChipTone.Neutral)
-                        }
+                        NorthstarChip("Himalayan 450", ChipTone.Gold, icon = NorthstarIcons.Motor)
                     }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(14.dp))
-
-        // Quick state tiles
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            listOf(
-                Triple(NorthstarIcons.Motor, "Bike", "Parked" to TextHi),
-                Triple(NorthstarIcons.Target, "GPS", "Strong" to Gold),
-                Triple(NorthstarIcons.Power, "Phone", "74%" to TextHi),
-            ).forEach { (icon, label, valAndColor) ->
-                val (value, color) = valAndColor
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Surf1)
-                        .border(1.dp, Line, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 12.dp, vertical = 13.dp),
-                ) {
-                    Icon(icon, contentDescription = label, tint = TextLo, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Text(value, color = color, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
-                    Spacer(Modifier.height(2.dp))
-                    Eyebrow(label)
                 }
             }
         }
@@ -156,58 +127,27 @@ fun HomeScreen(
 
         Spacer(Modifier.height(18.dp))
 
-        // Maintenance nudge
-        NorthstarCard(
-            modifier = Modifier.fillMaxWidth(),
-            padding = 0.dp,
-            onClick = { onNavigate("garage") },
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-            ) {
-                Box(
-                    Modifier
-                        .width(3.dp).fillMaxHeight()
-                        .background(Warn)
+        Eyebrow("Saved destinations", Modifier.padding(bottom = 6.dp, start = 4.dp))
+
+        if (saved.isEmpty()) {
+            NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
+                Text(
+                    "No saved destinations yet. Share a place from Google Maps, then tap “Save this destination”.",
+                    color = TextLo, fontSize = 13.sp,
                 )
-                Spacer(Modifier.width(14.dp))
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(11.dp))
-                        .background(Warn.copy(alpha = 0.13f)),
-                ) {
-                    Icon(NorthstarIcons.Chain, contentDescription = null, tint = Warn, modifier = Modifier.size(21.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Chain lube due soon", color = TextHi, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
-                    Text("120 km since last · clean & lube", color = TextLo, fontSize = 12.5.sp, modifier = Modifier.padding(top = 2.dp))
-                }
-                Icon(NorthstarIcons.ChevronRight, contentDescription = null, tint = TextLo, modifier = Modifier.size(18.dp))
             }
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        Eyebrow("Recent destinations", Modifier.padding(bottom = 6.dp, start = 4.dp))
-
-        NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
-            NorthstarRow(
-                "Chitkul Village", icon = NorthstarIcons.LocationPin,
-                sub = "Himachal · 218 km", right = "4h 50m",
-                trailingIcon = true, onClick = { onNavigate("route") },
-            )
-            NorthstarDivider(Modifier.padding(horizontal = 4.dp))
-            NorthstarRow(
-                "Jalori Pass", icon = NorthstarIcons.LocationPin,
-                sub = "Himachal · 142 km", right = "3h 20m",
-                trailingIcon = true, onClick = { onNavigate("route") },
-            )
+        } else {
+            NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+                saved.forEachIndexed { i, loc ->
+                    if (i > 0) NorthstarDivider(Modifier.padding(horizontal = 4.dp))
+                    NorthstarRow(
+                        loc.name, icon = NorthstarIcons.LocationPin,
+                        sub = loc.note.ifBlank { "%.4f, %.4f".format(loc.lat, loc.lng) },
+                        trailingIcon = true,
+                        onClick = { routeViewModel.selectSaved(loc); onNavigate("route") },
+                    )
+                }
+            }
         }
     }
 }

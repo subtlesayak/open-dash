@@ -33,8 +33,8 @@ data class DashUiState(
     val stage: ConnStage = ConnStage.OFFLINE,
     val frameCount: Int = 0,
     val lastButton: String? = null,
-    val ssid: String = "RE_P0RP_260525",
-    val wifiPassword: String = "12345678",
+    val ssid: String = "",            // empty until a dash is discovered/paired (see DashConfig)
+    val wifiPassword: String = "12345678",  // RE Tripper factory passphrase; rider-overridable
     val destinationName: String? = null,
     val errorMessage: String? = null,
     val mapZoom: Int = 19,
@@ -61,6 +61,11 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     private val session     = DashSession(viewModelScope)
     private val wifiManager = DashWifiManager(app, viewModelScope)
+    private val dashConfig  = com.example.northstar.dash.DashConfig.get(app)
+    private val voice        = com.example.northstar.dash.nav.VoiceManager.get(app)
+    private val repo         = com.example.northstar.data.SyncRepository.get(app)
+    private val recorder     = com.example.northstar.data.RideRecorder()
+    private var recordJob: Job? = null
     private val tiles       = TileProvider(app, viewModelScope)
     private val location    = LocationTracker(app)
     private val mapRenderer = MapRenderer(tiles)
@@ -111,6 +116,16 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        // Reflect the rider's stored dash WiFi config (SSID may be blank until discovered).
+        _ui.value = _ui.value.copy(ssid = dashConfig.ssid, wifiPassword = dashConfig.password)
+
+        // When we connect to a previously-unknown dash by prefix, learn + persist its exact
+        // SSID so subsequent connects target it directly (no system picker again).
+        wifiManager.onSsidResolved = { learned ->
+            dashConfig.ssid = learned
+            _ui.value = _ui.value.copy(ssid = learned)
+        }
+
         viewModelScope.launch {
             wifiManager.state.collect { ws ->
                 when (ws.status) {
@@ -170,12 +185,21 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         _ui.value = _ui.value.copy(errorMessage = null)
         DashKeepAliveService.start(getApplication())
         location.start()
-        if (wifiManager.state.value.status == WifiConnStatus.CONNECTED) session.connect(_ui.value.ssid, wifiManager.network)
-        else wifiManager.connect(_ui.value.ssid, _ui.value.wifiPassword)
+        startRecording()
+        when {
+            wifiManager.state.value.status == WifiConnStatus.CONNECTED ->
+                session.connect(_ui.value.ssid, wifiManager.network)
+            // First time on this dash: connect to any RE_* network by prefix and learn it.
+            dashConfig.needsDiscovery ->
+                wifiManager.connect(dashConfig.ssidPrefix, dashConfig.password, prefixMatch = true)
+            else ->
+                wifiManager.connect(dashConfig.ssid, dashConfig.password)
+        }
     }
 
     fun disconnect() {
         userWantsConnection = false
+        stopRecording()        // a connect→disconnect session = one saved ride
         teardown()
         session.disconnect()
         wifiManager.disconnect()
@@ -184,7 +208,29 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         refreshStage()
     }
 
-    fun setSsid(s: String) { _ui.value = _ui.value.copy(ssid = s) }
+    // ── Ride recording (the connected session) ───────────────────────────────
+    private fun startRecording() {
+        if (recorder.isRecording) return
+        recorder.start()
+        recordJob = viewModelScope.launch {
+            location.location.collect { loc ->
+                if (loc != null) recorder.add(loc.latitude, loc.longitude, loc.speed, loc.time)
+            }
+        }
+    }
+
+    private fun stopRecording() {
+        recordJob?.cancel(); recordJob = null
+        if (!recorder.isRecording) return
+        val ride = recorder.stop() ?: return   // null = trivial session, don't save
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) { repo.addRide(ride) }
+    }
+
+    // ── Dash WiFi config (Settings) ──────────────────────────────────────────
+    fun setSsid(s: String) { dashConfig.ssid = s.trim(); _ui.value = _ui.value.copy(ssid = s.trim()) }
+    fun setWifiPassword(p: String) { dashConfig.password = p; _ui.value = _ui.value.copy(wifiPassword = p) }
+    /** Forget the paired dash so the next connect rediscovers any RE_* dash by prefix. */
+    fun forgetDash() { dashConfig.forgetDash(); _ui.value = _ui.value.copy(ssid = "") }
 
     // ── Destination + routing ───────────────────────────────────────────────
 
@@ -203,6 +249,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         destLng = lng
         route = null
         progressM = 0.0
+        voice.resetTrip()   // fresh announcements for the new route
         session.updateRouteCard(name)
         if (lat != null && lng != null) {
             val loc = location.lastKnown()
@@ -219,6 +266,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         progressM = 0.0
         offRouteSince = 0L
         panX = 0f; panY = 0f; followMode = true
+        voice.resetTrip()
         lastSignature = ""   // force a redraw with no route line
         _ui.value = _ui.value.copy(
             destinationName = null,
@@ -385,6 +433,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 arrival.get(java.util.Calendar.HOUR_OF_DAY), arrival.get(java.util.Calendar.MINUTE)
             )
             session.updateNavInfo(DashCommands.NAV_MANEUVER_CONTINUE, pv, pu, tv, tu, etaHHMM)
+            // Spoken/chime turn guidance (no-op when voice mode is OFF).
+            voice.maybeAnnounce(ns.nextManeuver, ns.nextTurnM, ns.remainingM)
         } else if (loc != null && dLat != null && dLng != null) {
             remainingM = GeoPoint.distMeters(
                 GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng)
@@ -481,6 +531,17 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val bmp = frameBitmap ?: return
         val loc = location.location.value
+        // Glanceable ETA, shown only while navigating to a destination.
+        val mins = _ui.value.etaMinutes
+        val navingToDest = destLat != null && destLng != null
+        val etaPrimary = if (navingToDest && mins != null)
+            (if (mins >= 60) "${mins / 60}h ${mins % 60}m" else "$mins min") else null
+        val etaSecondary = if (etaPrimary != null) {
+            val arrival = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(System.currentTimeMillis() + (mins!! * 60_000L)))
+            val dist = remainingM?.let { fmtDist(it) }
+            listOfNotNull(dist, arrival).joinToString(" · ")
+        } else null
         val frame = MapRenderer.Frame(
             centerLat = centerLat,
             centerLng = centerLng,
@@ -497,6 +558,12 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             route = route?.geometry ?: emptyList(),
             maneuverText = null, // turn-by-turn maneuver banner removed
             remainingText = remainingM?.let { fmtDist(it) },
+            // Top-down (heading-up) nav view. The 3D perspective tilt is DISABLED: warping
+            // flat raster tiles via setPolyToPoly stretches the baked-in map labels and
+            // skews the angle (you can't get true Google-Maps 3D without vector tiles).
+            tilt3d = false,
+            etaPrimary = etaPrimary,
+            etaSecondary = etaSecondary,
         )
         mapRenderer.draw(Canvas(bmp), frame)
     }
@@ -511,6 +578,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private data class NavState(
         val remainingM: Double, val nextTurnM: Double, val heading: Float, val offRoute: Boolean,
         val snapped: GeoPoint, val snapDist: Double,
+        val nextManeuver: com.example.northstar.dash.nav.Maneuver?,
     )
 
     private data class Match(val cum: Double, val dist: Double, val bearing: Float, val proj: GeoPoint)
@@ -547,7 +615,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             it.cumulativeMeters > progressM + 1.0 && it.type != com.example.northstar.dash.nav.ManeuverType.DEPART
         }
         val nextTurn = nextMan?.let { (it.cumulativeMeters - progressM).coerceAtLeast(0.0) } ?: remaining
-        return NavState(remaining, nextTurn, m.bearing, m.dist > 70.0, m.proj, m.dist)
+        return NavState(remaining, nextTurn, m.bearing, m.dist > 70.0, m.proj, m.dist, nextMan)
     }
 
     private fun updateThermal() {
@@ -579,9 +647,11 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
+        stopRecording()        // save the in-progress ride if the app is closed mid-session
         teardown()
         session.disconnect()
         wifiManager.disconnect()
         location.stop()
+        voice.shutdown()
     }
 }

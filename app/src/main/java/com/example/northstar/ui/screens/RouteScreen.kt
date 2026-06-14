@@ -2,6 +2,7 @@ package com.example.northstar.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,8 +45,18 @@ fun RouteScreen(
         else              -> ""
     }
 
-    var voice by remember { mutableStateOf("Chime only") }
+    val savedList by routeViewModel.saved.collectAsState()
+    val ctx = LocalContext.current
+    val voiceManager = remember { com.example.northstar.dash.nav.VoiceManager.get(ctx) }
+    val voiceMode by voiceManager.mode.collectAsState()
+    val voice = when (voiceMode) {
+        com.example.northstar.dash.nav.VoiceMode.OFF   -> "Off"
+        com.example.northstar.dash.nav.VoiceMode.CHIME -> "Chime only"
+        com.example.northstar.dash.nav.VoiceMode.FULL  -> "Full TTS"
+    }
     var sent by remember { mutableStateOf(false) }
+    var showSave by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<com.example.northstar.data.SavedLocation?>(null) }
 
     LaunchedEffect(sent) {
         if (sent) {
@@ -175,28 +187,6 @@ fun RouteScreen(
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
-
-            // Route note
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Surf1)
-                    .border(1.dp, Line, RoundedCornerShape(14.dp))
-                    .padding(14.dp),
-            ) {
-                Icon(NorthstarIcons.Road, contentDescription = null, tint = Gold, modifier = Modifier.size(19.dp))
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "Twisty mountain route · ",
-                    color = TextMid, fontSize = 13.sp,
-                )
-                Text("3 fuel stops", color = TextHi, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                Text(" en route", color = TextMid, fontSize = 13.sp)
-            }
-
             Spacer(Modifier.height(20.dp))
 
             Row(
@@ -216,7 +206,13 @@ fun RouteScreen(
             NorthstarSegmented(
                 options = listOf("Off", "Chime only", "Full TTS"),
                 selected = voice,
-                onSelect = { voice = it },
+                onSelect = {
+                    voiceManager.setMode(when (it) {
+                        "Off"  -> com.example.northstar.dash.nav.VoiceMode.OFF
+                        "Full TTS" -> com.example.northstar.dash.nav.VoiceMode.FULL
+                        else   -> com.example.northstar.dash.nav.VoiceMode.CHIME
+                    })
+                },
                 modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp),
             )
 
@@ -235,7 +231,108 @@ fun RouteScreen(
                 enabled = !sent && canStart,
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            if (canStart) {
+                Spacer(Modifier.height(10.dp))
+                NorthstarBtn(
+                    label = "Save this destination",
+                    onClick = { showSave = true },
+                    icon = NorthstarIcons.Pin,
+                    variant = BtnVariant.Ghost,
+                    size = BtnSize.Md,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            // ── Saved destinations ──
+            if (savedList.isNotEmpty()) {
+                Spacer(Modifier.height(22.dp))
+                Eyebrow("Saved destinations", Modifier.padding(bottom = 6.dp, start = 4.dp))
+                NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+                    savedList.forEachIndexed { i, loc ->
+                        if (i > 0) NorthstarDivider(Modifier.padding(horizontal = 4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { routeViewModel.selectSaved(loc) }
+                                .padding(horizontal = 6.dp, vertical = 12.dp),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(GoldTint),
+                            ) { Icon(NorthstarIcons.LocationPin, null, tint = Gold, modifier = Modifier.size(20.dp)) }
+                            Spacer(Modifier.width(13.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(loc.name, color = TextHi, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily, maxLines = 1)
+                                Text(
+                                    if (loc.note.isNotBlank()) loc.note else "%.4f, %.4f".format(loc.lat, loc.lng),
+                                    color = TextLo, fontSize = 12.sp, fontFamily = GeistMonoFamily,
+                                    modifier = Modifier.padding(top = 2.dp), maxLines = 1,
+                                )
+                            }
+                            Icon(
+                                NorthstarIcons.Edit, "edit", tint = TextLo,
+                                modifier = Modifier.size(18.dp).clickable { editing = loc },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
+
+    if (showSave) SaveLocationDialog(
+        defaultName = destName,
+        onSave = { name, note -> routeViewModel.saveCurrentDestination(name, note); showSave = false },
+        onDismiss = { showSave = false },
+    )
+    editing?.let { loc ->
+        EditLocationDialog(
+            loc = loc,
+            onSave = { name, note -> routeViewModel.renameSaved(loc, name, note); editing = null },
+            onDelete = { routeViewModel.deleteSaved(loc); editing = null },
+            onDismiss = { editing = null },
+        )
+    }
+}
+
+@Composable
+private fun SaveLocationDialog(defaultName: String, onSave: (String, String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(defaultName) }
+    var note by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), note.trim()) }) { Text("Save", color = if (name.isNotBlank()) Gold else TextLo) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel", color = TextMid) } },
+        title = { Text("Save destination", color = TextHi) },
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                androidx.compose.material3.OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+        },
+        containerColor = Surf1,
+    )
+}
+
+@Composable
+private fun EditLocationDialog(loc: com.example.northstar.data.SavedLocation, onSave: (String, String) -> Unit, onDelete: () -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(loc.name) }
+    var note by remember { mutableStateOf(loc.note) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), note.trim()) }) { Text("Save", color = if (name.isNotBlank()) Gold else TextLo) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDelete) { Text("Delete", color = Alert) } },
+        title = { Text("Edit destination", color = TextHi) },
+        text = {
+            Column {
+                androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                androidx.compose.material3.OutlinedTextField(note, { note = it }, label = { Text("Note") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+        },
+        containerColor = Surf1,
+    )
 }
 

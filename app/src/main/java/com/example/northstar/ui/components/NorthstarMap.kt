@@ -1,54 +1,50 @@
 package com.example.northstar.ui.components
 
-import android.annotation.SuppressLint
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
-import android.location.LocationManager
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.northstar.dash.nav.GeoPoint
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.MapsInitializer
-import com.google.android.gms.maps.model.BitmapDescriptor
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.LatLngBounds
-import com.google.maps.android.compose.GoogleMap
-import com.google.maps.android.compose.MapProperties
-import com.google.maps.android.compose.MapType
-import com.google.maps.android.compose.MapUiSettings
-import com.google.maps.android.compose.Marker
-import com.google.maps.android.compose.Polyline
-import com.google.maps.android.compose.rememberCameraPositionState
-import com.google.maps.android.compose.rememberMarkerState
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
+import org.maplibre.android.maps.Style
+import org.maplibre.android.plugins.annotation.LineManager
+import org.maplibre.android.plugins.annotation.LineOptions
+import org.maplibre.android.plugins.annotation.SymbolManager
+import org.maplibre.android.plugins.annotation.SymbolOptions
 
-private const val FOLLOW_ZOOM = 15.5f
-private const val NAV_ZOOM = 17.5f
-private const val NAV_TILT = 45f
-private val RouteBlue = Color(0xFF4285F4) // Google Maps directions blue
+// Free, keyless, redistributable vector basemap (look-first, per the distribution decision).
+private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+private const val FOLLOW_ZOOM = 15.5
+private const val NAV_ZOOM = 17.5
+private const val NAV_TILT = 45.0
+private const val RIDER_ICON = "rider-chevron"
+private const val DEST_ICON = "dest-pin"
 
 /**
- * The real Google Maps view shown inside the app's Dash screen.
+ * In-app phone map (MapLibre + OpenFreeMap). Keyless and redistributable — no Google
+ * Maps SDK / API key. The physical dash still uses the off-screen power-efficient renderer.
  *
- * Modes:
- *  - [fitRoute] = route-preview: frames the whole route (overview).
- *  - [navMode]  = Google-Maps navigation: tilts, zooms in, and rotates the map to
- *    the travel heading with a blue chevron marking the rider's position/direction.
- *  - default: follow the rider north-up at street zoom.
- *
- * In-app (phone-screen) map only — the physical dash uses the off-screen renderer.
+ * Modes: [fitRoute] frames the whole route; [navMode] tilts/zooms/rotates to heading with a
+ * rider chevron; default follows the rider north-up.
  */
 @Composable
 fun NorthstarMap(
@@ -63,98 +59,107 @@ fun NorthstarMap(
     riderBearing: Float = 0f,
 ) {
     val context = LocalContext.current
+    remember { MapLibre.getInstance(context) }
+    val mapView = remember { MapView(context) }
 
-    val initial = remember(riderLat, riderLng, dest) {
-        when {
-            riderLat != null && riderLng != null -> LatLng(riderLat, riderLng) to (if (navMode) NAV_ZOOM else FOLLOW_ZOOM)
-            dest != null -> LatLng(dest.first, dest.second) to 13f
-            else -> lastKnownLatLng(context)?.let { it to FOLLOW_ZOOM }
-                ?: (LatLng(20.59, 78.96) to 4f) // India fallback, never 0,0
-        }
-    }
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var lineMgr by remember { mutableStateOf<LineManager?>(null) }
+    var symbolMgr by remember { mutableStateOf<SymbolManager?>(null) }
+    var styleReady by remember { mutableStateOf(false) }
 
-    val camera = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(initial.first, initial.second)
-    }
-    var mapLoaded by remember { mutableStateOf(false) }
-    // BitmapDescriptorFactory needs the Maps SDK initialised first — initialise
-    // before building the chevron, and tolerate failure (null → skip custom marker).
-    val chevron = remember {
-        runCatching {
-            MapsInitializer.initialize(context.applicationContext)
-            chevronIcon()
-        }.getOrNull()
-    }
-
-    // Route-preview: frame the whole route once laid out.
-    LaunchedEffect(mapLoaded, routePoints.size, fitRoute) {
-        if (fitRoute && mapLoaded && routePoints.size >= 2) {
-            val b = LatLngBounds.builder()
-            routePoints.forEach { b.include(LatLng(it.lat, it.lng)) }
-            runCatching { camera.animate(CameraUpdateFactory.newLatLngBounds(b.build(), 90)) }
-        }
-    }
-
-    // Follow the rider. In nav mode, rotate to heading + tilt (Google nav view).
-    LaunchedEffect(riderLat, riderLng, riderBearing, navMode) {
-        if (!fitRoute && riderLat != null && riderLng != null) {
-            val target = LatLng(riderLat, riderLng)
-            val pos = if (navMode) {
-                CameraPosition.Builder()
-                    .target(target).zoom(NAV_ZOOM).tilt(NAV_TILT).bearing(riderBearing).build()
-            } else {
-                val z = camera.position.zoom.takeIf { it >= 8f } ?: FOLLOW_ZOOM
-                CameraPosition.fromLatLngZoom(target, z)
+    // Bind the MapView to the composition lifecycle.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val obs = LifecycleEventObserver { _, e ->
+            when (e) {
+                Lifecycle.Event.ON_CREATE  -> mapView.onCreate(null)
+                Lifecycle.Event.ON_START   -> mapView.onStart()
+                Lifecycle.Event.ON_RESUME  -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE   -> mapView.onPause()
+                Lifecycle.Event.ON_STOP    -> mapView.onStop()
+                Lifecycle.Event.ON_DESTROY -> mapView.onDestroy()
+                else -> {}
             }
-            runCatching { camera.animate(CameraUpdateFactory.newCameraPosition(pos)) }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(obs)
+            lineMgr?.onDestroy(); symbolMgr?.onDestroy()
+            mapView.onDestroy()
         }
     }
 
-    GoogleMap(
-        modifier = modifier,
-        cameraPositionState = camera,
-        onMapLoaded = { mapLoaded = true },
-        properties = MapProperties(
-            // In nav mode we draw our own chevron, so hide the default dot.
-            isMyLocationEnabled = hasLocationPermission && !navMode,
-            mapType = MapType.NORMAL,
-        ),
-        uiSettings = MapUiSettings(
-            zoomControlsEnabled = false,
-            myLocationButtonEnabled = false,
-            compassEnabled = false,
-            mapToolbarEnabled = false,
-            tiltGesturesEnabled = false,
-            rotationGesturesEnabled = false,
-        ),
-    ) {
-        if (routePoints.size >= 2) {
-            val pts = routePoints.map { LatLng(it.lat, it.lng) }
-            Polyline(points = pts, color = Color.White, width = 22f)
-            Polyline(points = pts, color = RouteBlue, width = 14f)
+    LaunchedEffect(mapView) {
+        mapView.getMapAsync { m ->
+            map = m
+            m.uiSettings.apply {
+                isRotateGesturesEnabled = false
+                isTiltGesturesEnabled = false
+                isCompassEnabled = false
+                isAttributionEnabled = true   // OSM/OpenFreeMap attribution (keep — licensing)
+                isLogoEnabled = false
+            }
+            m.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
+                style.addImage(RIDER_ICON, chevronBitmap())
+                style.addImage(DEST_ICON, destPinBitmap())
+                lineMgr = LineManager(mapView, m, style)
+                symbolMgr = SymbolManager(mapView, m, style).apply {
+                    iconAllowOverlap = true; iconIgnorePlacement = true
+                }
+                styleReady = true
+            }
         }
-        dest?.let {
-            Marker(
-                state = rememberMarkerState(key = "dest", position = LatLng(it.first, it.second)),
-                title = "Destination",
+    }
+
+    // Redraw route + markers whenever the data or mode changes.
+    LaunchedEffect(styleReady, routePoints.size, dest, riderLat, riderLng, riderBearing, navMode) {
+        val lm = lineMgr ?: return@LaunchedEffect
+        val sm = symbolMgr ?: return@LaunchedEffect
+        lm.deleteAll(); sm.deleteAll()
+        if (routePoints.size >= 2) {
+            lm.create(
+                LineOptions().withLatLngs(routePoints.map { LatLng(it.lat, it.lng) })
+                    .withLineColor("#4285F4").withLineWidth(5.5f)
             )
         }
-        // Rider chevron pointing in the travel direction (nav mode).
-        if (navMode && chevron != null && riderLat != null && riderLng != null) {
-            Marker(
-                state = rememberMarkerState(key = "rider", position = LatLng(riderLat, riderLng)),
-                icon = chevron,
-                rotation = riderBearing,
-                flat = true,
-                anchor = Offset(0.5f, 0.5f),
-                zIndex = 2f,
+        dest?.let { sm.create(SymbolOptions().withLatLng(LatLng(it.first, it.second)).withIconImage(DEST_ICON).withIconSize(1.1f)) }
+        if (navMode && riderLat != null && riderLng != null) {
+            sm.create(
+                SymbolOptions().withLatLng(LatLng(riderLat, riderLng))
+                    .withIconImage(RIDER_ICON).withIconRotate(riderBearing).withIconSize(1.0f)
             )
         }
     }
+
+    // Camera control.
+    LaunchedEffect(styleReady, riderLat, riderLng, riderBearing, navMode, fitRoute, routePoints.size) {
+        val m = map ?: return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
+        when {
+            fitRoute && routePoints.size >= 2 -> {
+                val b = LatLngBounds.Builder()
+                routePoints.forEach { b.include(LatLng(it.lat, it.lng)) }
+                runCatching { m.animateCamera(CameraUpdateFactory.newLatLngBounds(b.build(), 110)) }
+            }
+            riderLat != null && riderLng != null -> {
+                val target = LatLng(riderLat, riderLng)
+                val pos = if (navMode)
+                    CameraPosition.Builder().target(target).zoom(NAV_ZOOM).tilt(NAV_TILT).bearing(riderBearing.toDouble()).build()
+                else
+                    CameraPosition.Builder().target(target).zoom(FOLLOW_ZOOM).tilt(0.0).bearing(0.0).build()
+                runCatching { m.animateCamera(CameraUpdateFactory.newCameraPosition(pos), 600) }
+            }
+            dest != null -> runCatching {
+                m.animateCamera(CameraUpdateFactory.newLatLngZoom(LatLng(dest.first, dest.second), 13.0))
+            }
+        }
+    }
+
+    AndroidView(factory = { mapView }, modifier = modifier)
 }
 
-/** A Google-style blue chevron-in-a-circle, pointing "up" (rotated to heading at draw). */
-private fun chevronIcon(): BitmapDescriptor {
+/** Google-style blue chevron-in-a-circle, pointing "up" (rotated to heading by the symbol). */
+private fun chevronBitmap(): Bitmap {
     val s = 84
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
     val c = Canvas(bmp)
@@ -165,26 +170,20 @@ private fun chevronIcon(): BitmapDescriptor {
     c.drawCircle(s / 2f, s / 2f, s * 0.30f, p)
     p.color = android.graphics.Color.WHITE
     val cx = s / 2f
-    val path = Path().apply {
-        moveTo(cx, s * 0.24f)
-        lineTo(s * 0.72f, s * 0.70f)
-        lineTo(cx, s * 0.58f)
-        lineTo(s * 0.28f, s * 0.70f)
-        close()
-    }
-    c.drawPath(path, p)
-    return BitmapDescriptorFactory.fromBitmap(bmp)
+    c.drawPath(Path().apply {
+        moveTo(cx, s * 0.24f); lineTo(s * 0.72f, s * 0.70f); lineTo(cx, s * 0.58f); lineTo(s * 0.28f, s * 0.70f); close()
+    }, p)
+    return bmp
 }
 
-@SuppressLint("MissingPermission")
-private fun lastKnownLatLng(context: Context): LatLng? {
-    return try {
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            ?: lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-        loc?.let { LatLng(it.latitude, it.longitude) }
-    } catch (e: Exception) {
-        null
-    }
+/** Simple red destination pin (white ring + red fill). */
+private fun destPinBitmap(): Bitmap {
+    val s = 72
+    val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+    val c = Canvas(bmp)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    p.color = android.graphics.Color.WHITE; c.drawCircle(s / 2f, s / 2f, s * 0.30f, p)
+    p.color = android.graphics.Color.rgb(234, 67, 53); c.drawCircle(s / 2f, s / 2f, s * 0.24f, p)
+    p.color = android.graphics.Color.WHITE; c.drawCircle(s / 2f, s / 2f, s * 0.09f, p)
+    return bmp
 }

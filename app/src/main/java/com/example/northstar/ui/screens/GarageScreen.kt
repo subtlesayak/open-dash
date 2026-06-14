@@ -25,6 +25,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.northstar.data.FuelFillup
+import com.example.northstar.data.MaintenanceItem
 import com.example.northstar.ui.NorthstarIcons
 import com.example.northstar.ui.components.*
 import com.example.northstar.ui.theme.*
@@ -87,7 +89,7 @@ fun GarageScreen(
         )
 
         if (tab == "Maintenance")
-            MaintenanceTab(ui, onMark = { id -> vm.markServiceDone(id, ui.odometerKm) }, onLog = { showLog = true }, onAdd = { showAddService = true })
+            MaintenanceTab(ui, onMark = { item -> vm.markServiceDone(item, ui.odometerKm) }, onLog = { showLog = true }, onAdd = { showAddService = true })
         else
             FuelTab(ui, onAdd = { showFuel = true }, onDelete = { vm.deleteFuel(it) })
     }
@@ -103,7 +105,7 @@ fun GarageScreen(
     )
     if (showLog) LogServiceDialog(
         rows = ui.maint, odo = ui.odometerKm,
-        onMark = { id -> vm.markServiceDone(id, ui.odometerKm) },
+        onMark = { item -> vm.markServiceDone(item, ui.odometerKm) },
         onDelete = { vm.deleteService(it) },
         onAddNew = { showLog = false; showAddService = true },
         onDismiss = { showLog = false },
@@ -112,7 +114,7 @@ fun GarageScreen(
 }
 
 @Composable
-private fun MaintenanceTab(ui: GarageUi, onMark: (Long) -> Unit, onLog: () -> Unit, onAdd: () -> Unit) {
+private fun MaintenanceTab(ui: GarageUi, onMark: (MaintenanceItem) -> Unit, onLog: () -> Unit, onAdd: () -> Unit) {
     val toneColor = mapOf("ok" to Gold, "warn" to Warn, "alert" to Alert)
     val hero = ui.maint.minByOrNull { it.remainingKm }
 
@@ -143,7 +145,7 @@ private fun MaintenanceTab(ui: GarageUi, onMark: (Long) -> Unit, onLog: () -> Un
                 Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(GoldDeep, tone))))
             }
             Spacer(Modifier.height(14.dp))
-            NorthstarBtn("Mark done today", onClick = { onMark(hero.item.id) }, icon = NorthstarIcons.Check, variant = BtnVariant.Primary, size = BtnSize.Sm, modifier = Modifier.fillMaxWidth())
+            NorthstarBtn("Mark done today", onClick = { onMark(hero.item) }, icon = NorthstarIcons.Check, variant = BtnVariant.Primary, size = BtnSize.Sm, modifier = Modifier.fillMaxWidth())
         }
     }
 
@@ -185,7 +187,7 @@ private fun MaintenanceTab(ui: GarageUi, onMark: (Long) -> Unit, onLog: () -> Un
 }
 
 @Composable
-private fun FuelTab(ui: GarageUi, onAdd: () -> Unit, onDelete: (Long) -> Unit) {
+private fun FuelTab(ui: GarageUi, onAdd: () -> Unit, onDelete: (FuelFillup) -> Unit) {
     NorthstarCard(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
         Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
             Column {
@@ -228,7 +230,7 @@ private fun FuelTab(ui: GarageUi, onAdd: () -> Unit, onDelete: (Long) -> Unit) {
         ui.fuel.forEachIndexed { i, row ->
             if (i > 0) NorthstarDivider(Modifier.padding(horizontal = 4.dp))
             val f = row.fill
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onDelete(f.id) }.padding(horizontal = 6.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { onDelete(f) }.padding(horizontal = 6.dp, vertical = 12.dp)) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Surf2).border(1.dp, Line, RoundedCornerShape(11.dp))) {
                     Icon(NorthstarIcons.Fuel, null, tint = TextMid, modifier = Modifier.size(20.dp))
                 }
@@ -313,7 +315,7 @@ private fun AddServiceDialog(onAdd: (String, String, Int) -> Unit, onDismiss: ()
 }
 
 @Composable
-private fun LogServiceDialog(rows: List<MaintRow>, odo: Int, onMark: (Long) -> Unit, onDelete: (Long) -> Unit, onAddNew: () -> Unit, onDismiss: () -> Unit) {
+private fun LogServiceDialog(rows: List<MaintRow>, odo: Int, onMark: (MaintenanceItem) -> Unit, onDelete: (MaintenanceItem) -> Unit, onAddNew: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = { TextButton(onClick = onAddNew) { Text("Add interval", color = Gold) } },
@@ -327,8 +329,8 @@ private fun LogServiceDialog(rows: List<MaintRow>, odo: Int, onMark: (Long) -> U
                         Icon(iconFor(row.item.iconKey), null, tint = TextMid, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(row.item.name, color = TextHi, fontSize = 13.5.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { onMark(row.item.id) }) { Text("Done", color = Gold, fontSize = 13.sp) }
-                        Icon(NorthstarIcons.Cross, "delete", tint = TextLo, modifier = Modifier.size(16.dp).clickable { onDelete(row.item.id) })
+                        TextButton(onClick = { onMark(row.item) }) { Text("Done", color = Gold, fontSize = 13.sp) }
+                        Icon(NorthstarIcons.Cross, "delete", tint = TextLo, modifier = Modifier.size(16.dp).clickable { onDelete(row.item) })
                     }
                 }
             }

@@ -36,6 +36,7 @@ private const val WEB_CLIENT_ID =
 fun LoginScreen(
     authViewModel: AuthViewModel,
     onSignedIn: () -> Unit,
+    onSkip: () -> Unit,
 ) {
     val authState by authViewModel.state.collectAsState()
     val context = LocalContext.current
@@ -140,31 +141,42 @@ fun LoginScreen(
                 }
 
                 val loading = authState.loading
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
+                // Google sign-in only when Firebase is configured (bring-your-own-project).
+                if (authState.syncAvailable) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (loading) Surf2 else Color(0xFFF8F8F8))
+                            .clickable(enabled = !loading) { launchGoogleSignIn() }
+                            .padding(horizontal = 20.dp),
+                    ) {
+                        Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            if (loading) "Signing in…" else "Continue with Google",
+                            color = if (loading) TextMid else Color(0xFF1F1F1F),
+                            fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+
+                // Always available: use the app locally without an account (no sync).
+                Text(
+                    if (authState.syncAvailable) "Continue without signing in" else "Continue",
+                    color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(if (loading) Surf2 else Color(0xFFF8F8F8))
-                        .clickable(enabled = !loading) { launchGoogleSignIn() }
-                        .padding(horizontal = 20.dp),
-                ) {
-                    Text(
-                        "G",
-                        color = Color(0xFF4285F4),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        if (loading) "Signing in…" else "Continue with Google",
-                        color = if (loading) TextMid else Color(0xFF1F1F1F),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
+                        .background(Surf2)
+                        .clickable(enabled = !loading) { onSkip() }
+                        .wrapContentHeight(Alignment.CenterVertically),
+                )
 
                 Spacer(Modifier.height(18.dp))
 
@@ -175,7 +187,11 @@ fun LoginScreen(
                 ) {
                     Box(Modifier.size(5.dp).clip(CircleShape).background(TextLo))
                     Spacer(Modifier.width(7.dp))
-                    Text("Synced across devices with Firebase", color = TextLo, fontSize = 12.5.sp)
+                    Text(
+                        if (authState.syncAvailable) "Sign in to sync across devices · data stays local otherwise"
+                        else "Local only · add a Firebase project to sync across devices",
+                        color = TextLo, fontSize = 12.5.sp, textAlign = TextAlign.Center,
+                    )
                 }
             }
         }

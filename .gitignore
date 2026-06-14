@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Firebase is bring-your-own-project — each user drops in their own (the build runs
+# fully local without it). Never commit the author's config to a public repo.
+google-services.json
+app/google-services.json

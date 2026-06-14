@@ -5,7 +5,9 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiNetworkSpecifier
+import android.os.PatternMatcher
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -40,6 +42,8 @@ class DashWifiManager(
         private const val TAG              = "DashWifiManager"
         private const val CONNECT_TIMEOUT  = 30_000  // ms — Android shows system dialog within this
         private const val RECONNECT_DELAY  = 4_000L
+        // Android returns this sentinel from WifiInfo.getSsid() when it can't read the SSID.
+        private const val WifiManagerUnknownSsid = "<unknown ssid>"
     }
 
     private val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -61,18 +65,29 @@ class DashWifiManager(
     private var wantConnected = false
     private var pendingSsid = ""
     private var pendingPassword = ""
+    private var pendingPrefix = false
+
+    /**
+     * When we connect by prefix (any RE_* dash), the exact SSID is only known once the
+     * link is up. This callback reports it so the caller can persist it for direct
+     * reconnects next time. Null/blank if it can't be resolved.
+     */
+    var onSsidResolved: ((String) -> Unit)? = null
 
     // ── Public API ────────────────────────────────────────────────────────
 
     /**
-     * Request the given WiFi network. Shows a one-time system confirmation
-     * dialog ("Northstar wants to connect to <ssid>"). Pass an empty password
-     * for open (no-password) networks.
+     * Request a WiFi network. Shows a one-time system confirmation dialog.
+     *
+     * @param prefixMatch when true, [ssid] is treated as a PREFIX and Android offers any
+     *   matching network (e.g. every `RE_*` dash) — this is what makes Northstar work on
+     *   any rider's Tripper without hardcoding their SSID. When false, exact-match.
      */
-    fun connect(ssid: String, password: String = "") {
+    fun connect(ssid: String, password: String = "", prefixMatch: Boolean = false) {
         wantConnected    = true
         pendingSsid      = ssid
         pendingPassword  = password
+        pendingPrefix    = prefixMatch
         requestNetwork()
     }
 
@@ -88,10 +103,13 @@ class DashWifiManager(
 
     private fun requestNetwork() {
         release()
-        Log.i(TAG, "Requesting WiFi: '$pendingSsid' (password=${if (pendingPassword.isBlank()) "none" else "set"})")
+        Log.i(TAG, "Requesting WiFi: '$pendingSsid' " +
+            "(${if (pendingPrefix) "prefix" else "exact"}, password=${if (pendingPassword.isBlank()) "none" else "set"})")
         _state.value = WifiState(status = WifiConnStatus.REQUESTING, ssid = pendingSsid)
 
-        val specBuilder = WifiNetworkSpecifier.Builder().setSsid(pendingSsid)
+        val specBuilder = WifiNetworkSpecifier.Builder()
+        if (pendingPrefix) specBuilder.setSsidPattern(PatternMatcher(pendingSsid, PatternMatcher.PATTERN_PREFIX))
+        else specBuilder.setSsid(pendingSsid)
         if (pendingPassword.isNotBlank()) specBuilder.setWpa2Passphrase(pendingPassword)
 
         val request = NetworkRequest.Builder()
@@ -101,10 +119,14 @@ class DashWifiManager(
 
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                Log.i(TAG, "WiFi connected ✓  network=$network")
                 this@DashWifiManager.network = network
                 reconnectJob?.cancel()
-                _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = pendingSsid)
+                // If we connected by prefix, learn the dash's actual SSID so future
+                // connects target it directly (and so we can persist it for this rider).
+                val resolved = resolveSsid(network).takeIf { it.isNotBlank() } ?: pendingSsid
+                Log.i(TAG, "WiFi connected ✓  ssid='$resolved' network=$network")
+                if (pendingPrefix && resolved != pendingSsid) onSsidResolved?.invoke(resolved)
+                _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = resolved)
             }
 
             override fun onUnavailable() {
@@ -150,6 +172,13 @@ class DashWifiManager(
             delay(RECONNECT_DELAY)
             if (wantConnected) requestNetwork()
         }
+    }
+
+    /** Read the connected network's SSID (strips the surrounding quotes Android adds). */
+    private fun resolveSsid(network: Network): String {
+        val caps = cm.getNetworkCapabilities(network) ?: return ""
+        val info = caps.transportInfo as? WifiInfo ?: return ""
+        return info.ssid.orEmpty().trim('"').let { if (it == WifiManagerUnknownSsid) "" else it }
     }
 
     private fun release() {

@@ -17,6 +17,8 @@ credentials = "1.3.0"
 googleid = "1.1.1"
 mapsCompose = "6.4.1"
 playServicesMaps = "19.0.0"
+maplibre = "11.8.0"
+maplibreAnnotation = "3.0.2"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -39,12 +41,15 @@ androidx-compose-ui-text-google-fonts = { group = "androidx.compose.ui", name = 
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
 androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
 androidx-credentials-play-services = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
 google-identity-googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 maps-compose = { group = "com.google.maps.android", name = "maps-compose", version.ref = "mapsCompose" }
 play-services-maps = { group = "com.google.android.gms", name = "play-services-maps", version.ref = "playServicesMaps" }
+maplibre = { group = "org.maplibre.gl", name = "android-sdk", version.ref = "maplibre" }
+maplibre-annotation = { group = "org.maplibre.gl", name = "android-plugin-annotation-v9", version.ref = "maplibreAnnotation" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

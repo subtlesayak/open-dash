@@ -4,6 +4,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
@@ -36,6 +37,9 @@ class MapRenderer(private val tiles: TileProvider) {
         val route: List<GeoPoint> = emptyList(),
         val maneuverText: String? = null,  // e.g. "Turn left · 400 m"
         val remainingText: String? = null, // e.g. "186 km"
+        val tilt3d: Boolean = false,       // perspective 3D view (nav heading-up only)
+        val etaPrimary: String? = null,    // big glance value, e.g. "24 min" (nav only)
+        val etaSecondary: String? = null,  // smaller line, e.g. "18 km · 13:32"
     )
 
     private val bgColor   = Color.rgb(229, 227, 223) // Google Maps land colour, behind missing tiles
@@ -62,11 +66,20 @@ class MapRenderer(private val tiles: TileProvider) {
     private val bannerPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(215, 13, 15, 17) }
     private val standbyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(60, 64, 67); textSize = 22f; isFakeBoldText = true }
 
+    // ETA pill (drawn in screen space, bottom-centre, inside the round safe zone)
+    private val etaBgPaint   = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(225, 13, 15, 17) }
+    private val etaBigPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 34f; isFakeBoldText = true; textAlign = Paint.Align.CENTER }
+    private val etaSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(200, 204, 208); textSize = 19f; textAlign = Paint.Align.CENTER }
+
     // Reused across frames
     private val routePath = Path()
     private val riderPath = Path()
     private val tmpRect = RectF()
+    private val pillRect = RectF()
     private val textBounds = Rect()
+    private val tiltMatrix = Matrix()
+    private val tiltSrc = FloatArray(8)
+    private val tiltDst = FloatArray(8)
 
     fun draw(canvas: Canvas, f: Frame) {
         val w = canvas.width
@@ -74,9 +87,11 @@ class MapRenderer(private val tiles: TileProvider) {
         canvas.drawColor(bgColor)
 
         val rotate = f.headingUp
+        val tilt = rotate && f.tilt3d
         // Nav view: bias the rider toward the lower third so the road AHEAD fills the
-        // screen (like Google Maps navigation). North-up view keeps the rider centred.
-        val pivotY = if (rotate) h * 0.66f else h / 2f
+        // screen (like Google Maps navigation). 3D pushes it lower still. North-up
+        // view keeps the rider centred.
+        val pivotY = if (rotate) (if (tilt) h * 0.74f else h * 0.66f) else h / 2f
 
         val ts = Mercator.TILE_SIZE
         val cx = Mercator.lngToTileX(f.centerLng, f.zoom) * ts + f.panX
@@ -89,6 +104,23 @@ class MapRenderer(private val tiles: TileProvider) {
 
         if (rotate) {
             canvas.save()
+            if (tilt) {
+                // Perspective tilt: warp the flat frame into a trapezoid that converges
+                // toward the top, so the road ahead recedes into the distance (the
+                // Google-Maps 3D look). Near things (rider, bottom) stay ~undistorted;
+                // far things (dest, route ahead) shrink, which is exactly right.
+                val inset = w * 0.18f
+                tiltSrc[0] = 0f;          tiltSrc[1] = 0f
+                tiltSrc[2] = w.toFloat(); tiltSrc[3] = 0f
+                tiltSrc[4] = w.toFloat(); tiltSrc[5] = h.toFloat()
+                tiltSrc[6] = 0f;          tiltSrc[7] = h.toFloat()
+                tiltDst[0] = inset;          tiltDst[1] = 0f
+                tiltDst[2] = w - inset;      tiltDst[3] = 0f
+                tiltDst[4] = w.toFloat();    tiltDst[5] = h.toFloat()
+                tiltDst[6] = 0f;             tiltDst[7] = h.toFloat()
+                tiltMatrix.setPolyToPoly(tiltSrc, 0, tiltDst, 0, 4)
+                canvas.concat(tiltMatrix)
+            }
             canvas.rotate(-f.heading, w / 2f, pivotY)
         }
 
@@ -147,8 +179,29 @@ class MapRenderer(private val tiles: TileProvider) {
 
         if (rotate) canvas.restore()
 
-        // No on-map text overlays — the dash's own widgets show name/distance/turn,
-        // and the round bezel clips anything near the top edge.
+        // ── ETA pill (screen-space so it stays upright; bottom-centre safe zone) ──
+        // The dash is round, so we keep it narrow and centred where the circle is widest.
+        f.etaPrimary?.let { primary ->
+            val secondary = f.etaSecondary
+            etaBigPaint.getTextBounds(primary, 0, primary.length, textBounds)
+            var pillW = textBounds.width().toFloat()
+            if (secondary != null) pillW = maxOf(pillW, etaSmallPaint.measureText(secondary))
+            pillW = (pillW + 44f).coerceAtMost(w * 0.62f)
+            val pillH = if (secondary != null) 62f else 46f
+            val cxp = w / 2f
+            val bottom = h - 22f
+            pillRect.set(cxp - pillW / 2f, bottom - pillH, cxp + pillW / 2f, bottom)
+            canvas.drawRoundRect(pillRect, pillH / 2f, pillH / 2f, etaBgPaint)
+            if (secondary != null) {
+                canvas.drawText(primary, cxp, bottom - pillH + 30f, etaBigPaint)
+                canvas.drawText(secondary, cxp, bottom - 14f, etaSmallPaint)
+            } else {
+                canvas.drawText(primary, cxp, bottom - 13f, etaBigPaint)
+            }
+        }
+
+        // No other on-map text overlays — the dash's own widgets show name/turn, and the
+        // round bezel clips anything near the top edge.
 
         // ── Standby when nothing to show (dark text on the light map bg) ──
         if (f.riderLat == null && f.destLat == null) {

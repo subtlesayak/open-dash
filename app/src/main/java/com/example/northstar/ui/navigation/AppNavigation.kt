@@ -112,6 +112,11 @@ fun AppNavigation(
                                 popUpTo(Screen.Login.route) { inclusive = true }
                             }
                         },
+                        onSkip = {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Login.route) { inclusive = true }
+                            }
+                        },
                     )
                 }
 
@@ -126,6 +131,7 @@ fun AppNavigation(
                                 "settings" -> navController.navigate(Screen.Settings.route)
                             }
                         },
+                        routeViewModel = routeViewModel,
                     )
                 }
 

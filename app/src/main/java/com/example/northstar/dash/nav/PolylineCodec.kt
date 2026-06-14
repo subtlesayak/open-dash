@@ -33,4 +33,29 @@ object PolylineCodec {
         }
         return points
     }
+
+    /** Encode points to the Google/OSRM polyline format (used to store ride tracks compactly). */
+    fun encode(points: List<GeoPoint>, precision: Int = 5): String {
+        val factor = Math.pow(10.0, precision.toDouble())
+        val sb = StringBuilder()
+        var lastLat = 0L
+        var lastLng = 0L
+        for (p in points) {
+            val lat = Math.round(p.lat * factor)
+            val lng = Math.round(p.lng * factor)
+            encodeDelta(lat - lastLat, sb)
+            encodeDelta(lng - lastLng, sb)
+            lastLat = lat; lastLng = lng
+        }
+        return sb.toString()
+    }
+
+    private fun encodeDelta(v: Long, sb: StringBuilder) {
+        var value = if (v < 0) (v shl 1).inv() else (v shl 1)
+        while (value >= 0x20) {
+            sb.append(((0x20 or (value and 0x1f).toInt()) + 63).toChar())
+            value = value shr 5
+        }
+        sb.append((value.toInt() + 63).toChar())
+    }
 }

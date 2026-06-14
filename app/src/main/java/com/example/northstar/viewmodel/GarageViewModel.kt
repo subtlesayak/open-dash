@@ -5,7 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.northstar.data.FuelFillup
 import com.example.northstar.data.MaintenanceItem
-import com.example.northstar.data.NorthstarDb
+import com.example.northstar.data.SyncRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,19 +26,28 @@ data class GarageUi(
 )
 
 class GarageViewModel(app: Application) : AndroidViewModel(app) {
-    private val db = NorthstarDb.get(app)
+    private val repo = SyncRepository.get(app)
     private val _ui = MutableStateFlow(GarageUi())
     val ui = _ui.asStateFlow()
 
-    init { reload() }
+    init {
+        reload()
+        // Reload whenever local OR synced-from-cloud data changes.
+        viewModelScope.launch { repo.revision.collect { reload() } }
+    }
 
     private fun reload() = viewModelScope.launch {
-        _ui.value = withContext(Dispatchers.IO) { compute() }
+        val ui = withContext(Dispatchers.IO) { compute() }
+        _ui.value = ui
+        // Buzz if a service just crossed into "due" (de-duped inside the notifier).
+        withContext(Dispatchers.IO) {
+            com.example.northstar.data.MaintenanceNotifier.check(getApplication(), ui.maint.map { it.item }, ui.odometerKm)
+        }
     }
 
     private fun compute(): GarageUi {
-        val odo = db.odometer()
-        val fills = db.fuelFills()   // highest odometer (newest) first
+        val odo = repo.odometer()
+        val fills = repo.fuelFills()   // highest odometer (newest) first
         val fuelRows = fills.mapIndexed { i, f ->
             val prev = fills.getOrNull(i + 1)   // next-lower odometer fill
             val kmpl = if (prev != null && f.litres > 0 && f.odometerKm > prev.odometerKm)
@@ -48,7 +57,7 @@ class GarageViewModel(app: Application) : AndroidViewModel(app) {
         val cutoff = System.currentTimeMillis() - 30L * 24 * 3600 * 1000
         val recent = fuelRows.filter { it.fill.dateMs >= cutoff }
         val kmpls = recent.mapNotNull { it.kmpl }
-        val maint = db.maintenanceItems().map { m ->
+        val maint = repo.maintenanceItems().map { m ->
             val remaining = m.lastDoneOdoKm + m.intervalKm - odo
             val tone = when {
                 remaining < 0 -> "alert"
@@ -68,30 +77,21 @@ class GarageViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
-    fun addFuel(litres: Double, cost: Double, odometerKm: Int, location: String) = viewModelScope.launch {
-        withContext(Dispatchers.IO) {
-            db.addFuel(FuelFillup(dateMs = System.currentTimeMillis(), litres = litres, cost = cost, odometerKm = odometerKm, location = location))
-        }
-        reload()
-    }
+    fun addFuel(litres: Double, cost: Double, odometerKm: Int, location: String) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.addFuel(litres, cost, odometerKm, location) } }
 
-    fun deleteFuel(id: Long) = viewModelScope.launch {
-        withContext(Dispatchers.IO) { db.deleteFuel(id) }; reload()
-    }
+    fun deleteFuel(fill: FuelFillup) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.deleteFuel(fill) } }
 
-    fun markServiceDone(id: Long, odoKm: Int) = viewModelScope.launch {
-        withContext(Dispatchers.IO) { db.markServiceDone(id, odoKm) }; reload()
-    }
+    fun markServiceDone(item: MaintenanceItem, odoKm: Int) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.markServiceDone(item, odoKm) } }
 
-    fun addService(name: String, iconKey: String, intervalKm: Int) = viewModelScope.launch {
-        withContext(Dispatchers.IO) { db.addMaintenance(name, iconKey, intervalKm, db.odometer()) }; reload()
-    }
+    fun addService(name: String, iconKey: String, intervalKm: Int) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.addMaintenance(name, iconKey, intervalKm, repo.odometer()) } }
 
-    fun deleteService(id: Long) = viewModelScope.launch {
-        withContext(Dispatchers.IO) { db.deleteMaintenance(id) }; reload()
-    }
+    fun deleteService(item: MaintenanceItem) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.deleteMaintenance(item) } }
 
-    fun setOdometer(km: Int) = viewModelScope.launch {
-        withContext(Dispatchers.IO) { db.setOdometer(km) }; reload()
-    }
+    fun setOdometer(km: Int) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.setOdometer(km) } }
 }

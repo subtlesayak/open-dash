@@ -40,6 +40,45 @@ class RouteViewModel(app: Application) : AndroidViewModel(app) {
     val state = _state.asStateFlow()
 
     private val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    private val repo = com.example.northstar.data.SyncRepository.get(app)
+
+    private val _saved = MutableStateFlow<List<com.example.northstar.data.SavedLocation>>(emptyList())
+    /** Saved destinations the rider can tap to load + navigate again. */
+    val saved = _saved.asStateFlow()
+
+    init {
+        reloadSaved()
+        // Reflect saves made locally OR synced in from another device.
+        viewModelScope.launch { repo.revision.collect { reloadSaved() } }
+    }
+
+    private fun reloadSaved() = viewModelScope.launch {
+        _saved.value = withContext(Dispatchers.IO) { repo.savedLocations() }
+    }
+
+    /** Save the current resolved destination so it can be reused. No-op without coords. */
+    fun saveCurrentDestination(name: String, note: String = "") {
+        val d = _state.value.destination ?: return
+        val lat = d.lat ?: return
+        val lng = d.lng ?: return
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.addSaved(name.ifBlank { d.name }, lat, lng, note) } }
+    }
+
+    fun renameSaved(loc: com.example.northstar.data.SavedLocation, name: String, note: String) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.renameSaved(loc, name, note) } }
+
+    fun deleteSaved(loc: com.example.northstar.data.SavedLocation) =
+        viewModelScope.launch { withContext(Dispatchers.IO) { repo.deleteSaved(loc) } }
+
+    /** Load a saved destination into the route preview (compute route; stay on the page). */
+    fun selectSaved(loc: com.example.northstar.data.SavedLocation) {
+        _state.value = RouteState(
+            destination = SharedLocation(name = loc.name, lat = loc.lat, lng = loc.lng),
+            isResolving = false,
+            pendingNavigate = false,
+        )
+        computeRoute(loc.lat, loc.lng)
+    }
 
     fun handleSharedText(text: String) {
         val loc = LocationParser.parse(text)

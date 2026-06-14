@@ -2,38 +2,43 @@ package com.example.northstar.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.northstar.data.Ride
+import com.example.northstar.dash.nav.PolylineCodec
 import com.example.northstar.ui.NorthstarIcons
 import com.example.northstar.ui.components.*
 import com.example.northstar.ui.theme.*
+import com.example.northstar.viewmodel.RidesViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
-fun RidesScreen() {
-    data class Ride(val name: String, val date: String, val dist: String, val dur: String, val avg: String, val routePts: List<Offset>)
-
-    val rides = listOf(
-        Ride("Shimla → Narkanda",   "Jun 06", "64",  "2h 10m", "38", listOf(Offset(0.19f, 0.83f), Offset(0.36f, 0.57f), Offset(0.47f, 0.40f), Offset(0.55f, 0.24f), Offset(0.61f, 0.14f))),
-        Ride("Solan loop",          "May 30", "112", "3h 40m", "46", listOf(Offset(0.22f, 0.74f), Offset(0.42f, 0.71f), Offset(0.47f, 0.52f), Offset(0.39f, 0.38f), Offset(0.53f, 0.26f))),
-        Ride("Kufri morning run",   "May 24", "38",  "1h 25m", "34", listOf(Offset(0.17f, 0.71f), Offset(0.33f, 0.64f), Offset(0.28f, 0.48f), Offset(0.42f, 0.43f), Offset(0.58f, 0.17f))),
-        Ride("Chail forest trail",  "May 18", "88",  "3h 05m", "41", listOf(Offset(0.22f, 0.79f), Offset(0.35f, 0.60f), Offset(0.30f, 0.48f), Offset(0.50f, 0.45f), Offset(0.55f, 0.26f), Offset(0.58f, 0.19f))),
-    )
+fun RidesScreen(ridesViewModel: RidesViewModel = viewModel()) {
+    val rides by ridesViewModel.rides.collectAsState()
 
     Column(
         modifier = Modifier
@@ -42,91 +47,143 @@ fun RidesScreen() {
             .padding(18.dp)
             .padding(bottom = 24.dp),
     ) {
-        ScreenHeader(
-            eyebrow = "Telemetry",
-            title = "Ride history",
-            trailing = { NorthstarIconBtn(NorthstarIcons.Chart, onClick = {}) },
-        )
+        ScreenHeader(eyebrow = "Telemetry", title = "Ride history")
 
-        // Month summary card
-        NorthstarCard(glow = true, modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
-            Eyebrow("This month")
-            Spacer(Modifier.height(10.dp))
-            Row(
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                listOf(Triple("302", "km", "Distance"), Triple("10:20", "h", "Saddle time"), Triple("41", "avg", "km/h")).forEachIndexed { i, (v, u, k) ->
-                    Column(
-                        horizontalAlignment = if (i == 0) Alignment.Start else Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Row(verticalAlignment = Alignment.Bottom) {
-                            Text(v, color = if (i == 0) Gold else TextHi, fontSize = if (i == 0) 30.sp else 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
-                            Spacer(Modifier.width(3.dp))
-                            Text(u, color = TextLo, fontSize = 11.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(bottom = 2.dp))
-                        }
-                        Eyebrow(k, Modifier.padding(top = 4.dp))
-                    }
-                }
+        if (rides.isEmpty()) {
+            EmptyRides()
+        } else {
+            RideTotals(rides)
+            Spacer(Modifier.height(14.dp))
+            rides.forEach { ride ->
+                RideCard(ride, onDelete = { ridesViewModel.deleteRide(ride) })
+                Spacer(Modifier.height(12.dp))
             }
         }
+    }
+}
 
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            rides.forEach { ride ->
-                NorthstarCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    padding = 12.dp,
-                    onClick = {},
+@Composable
+private fun RideTotals(rides: List<Ride>) {
+    val totalKm = rides.sumOf { it.distanceKm }
+    val totalSec = rides.sumOf { it.durationSec }
+    NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 18.dp) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Stat("${rides.size}", "rides")
+            Stat("%.0f".format(totalKm), "km total")
+            Stat(fmtDuration(totalSec), "time")
+        }
+    }
+}
+
+@Composable
+private fun Stat(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, color = Gold, fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFamily = GeistFamily)
+        Text(label, color = TextLo, fontSize = 12.sp, fontFamily = GeistFamily)
+    }
+}
+
+@Composable
+private fun RideCard(ride: Ride, onDelete: () -> Unit) {
+    val track = remember(ride.trackPolyline) {
+        if (ride.trackPolyline.isBlank()) emptyList()
+        else PolylineCodec.decode(ride.trackPolyline)
+    }
+    NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                // Track sketch
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)).background(Surf2),
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        // Mini map snapshot
-                        Box(
-                            modifier = Modifier
-                                .size(60.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Brush.radialGradient(listOf(Color(0xFF14201F), Color(0xFF0B1011))))
-                                .border(1.dp, Line2, RoundedCornerShape(14.dp)),
-                        ) {
-                            Canvas(Modifier.fillMaxSize()) {
-                                val w = size.width; val h = size.height
-
-                                // Grid roads
-                                drawLine(Color(0xFF22312F), Offset(w * 0.11f, h * 0.60f), Offset(w * 0.89f, h * 0.67f), 3f)
-                                drawLine(Color(0xFF22312F), Offset(w * 0.42f, h * 0.05f), Offset(w * 0.56f, h * 0.95f), 3f)
-
-                                // Route
-                                if (ride.routePts.size >= 2) {
-                                    val path = Path()
-                                    path.moveTo(ride.routePts[0].x * w, ride.routePts[0].y * h)
-                                    ride.routePts.drop(1).forEach { pt -> path.lineTo(pt.x * w, pt.y * h) }
-                                    drawPath(path, Gold, style = Stroke(3.4f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                                }
-
-                                // Start dot
-                                ride.routePts.firstOrNull()?.let {
-                                    drawCircle(Gold, 3.5f, Offset(it.x * w, it.y * h))
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.width(14.dp))
-
-                        Column(Modifier.weight(1f)) {
-                            Text(ride.name, color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(ride.date, color = TextLo, fontSize = 12.sp, modifier = Modifier.padding(top = 3.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 8.dp)) {
-                                Text("${ride.dist} km", color = TextMid, fontSize = 12.5.sp, fontFamily = GeistMonoFamily)
-                                Text(ride.dur, color = TextMid, fontSize = 12.5.sp, fontFamily = GeistMonoFamily)
-                                Text("${ride.avg} km/h", color = TextMid, fontSize = 12.5.sp, fontFamily = GeistMonoFamily)
-                            }
-                        }
-
-                        Icon(NorthstarIcons.ChevronRight, contentDescription = null, tint = TextLo, modifier = Modifier.size(18.dp))
-                    }
+                    if (track.size >= 2) TrackSketch(track, Modifier.fillMaxSize().padding(8.dp))
+                    else Icon(NorthstarIcons.Route, contentDescription = null, tint = TextLo, modifier = Modifier.size(22.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(fmtDate(ride.startMs), color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+                    Text(
+                        "${fmtTime(ride.startMs)} – ${fmtTime(ride.endMs)}",
+                        color = TextLo, fontSize = 12.sp, fontFamily = GeistFamily,
+                    )
+                }
+                Text("%.1f km".format(ride.distanceKm), color = Gold, fontSize = 18.sp, fontWeight = FontWeight.Bold, fontFamily = GeistFamily)
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                MiniStat(fmtDuration(ride.durationSec), "duration")
+                MiniStat("%.0f km/h".format(ride.avgSpeedKmh), "avg")
+                MiniStat("%.0f km/h".format(ride.maxSpeedKmh), "max")
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(34.dp).clip(CircleShape).background(Surf2)
+                        .clickable { onDelete() },
+                ) {
+                    Icon(NorthstarIcons.X, contentDescription = "Delete ride", tint = TextLo, modifier = Modifier.size(16.dp))
                 }
             }
         }
     }
+}
+
+@Composable
+private fun MiniStat(value: String, label: String) {
+    Column(horizontalAlignment = Alignment.Start) {
+        Text(value, color = TextHi, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+        Text(label, color = TextLo, fontSize = 11.sp, fontFamily = GeistFamily)
+    }
+}
+
+@Composable
+private fun TrackSketch(points: List<com.example.northstar.dash.nav.GeoPoint>, modifier: Modifier) {
+    Canvas(modifier) {
+        val minLat = points.minOf { it.lat }; val maxLat = points.maxOf { it.lat }
+        val minLng = points.minOf { it.lng }; val maxLng = points.maxOf { it.lng }
+        val spanLat = (maxLat - minLat).coerceAtLeast(1e-6)
+        val spanLng = (maxLng - minLng).coerceAtLeast(1e-6)
+        val span = maxOf(spanLat, spanLng)   // keep aspect square-ish
+        val path = Path()
+        points.forEachIndexed { i, p ->
+            val x = ((p.lng - minLng) / span * size.width).toFloat()
+            val y = (size.height - (p.lat - minLat) / span * size.height).toFloat()
+            if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        }
+        drawPath(path, Gold, style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        // start (green-ish) + end (gold) dots
+        val first = points.first(); val last = points.last()
+        drawCircle(TextHi, 2.5f, Offset(((first.lng - minLng) / span * size.width).toFloat(),
+            (size.height - (first.lat - minLat) / span * size.height).toFloat()))
+        drawCircle(Gold, 2.5f, Offset(((last.lng - minLng) / span * size.width).toFloat(),
+            (size.height - (last.lat - minLat) / span * size.height).toFloat()))
+    }
+}
+
+@Composable
+private fun EmptyRides() {
+    NorthstarCard(modifier = Modifier.fillMaxWidth(), padding = 28.dp) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(56.dp).clip(CircleShape).background(Surf2),
+            ) {
+                Icon(NorthstarIcons.Route, contentDescription = null, tint = TextLo, modifier = Modifier.size(26.dp))
+            }
+            Spacer(Modifier.height(14.dp))
+            Text("No rides recorded yet", color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Connect to your dash to start a ride — it's saved automatically when you disconnect.",
+                color = TextLo, fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 8.dp),
+            )
+        }
+    }
+}
+
+private fun fmtDate(ms: Long) = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault()).format(Date(ms))
+private fun fmtTime(ms: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(ms))
+private fun fmtDuration(sec: Long): String {
+    val h = sec / 3600; val m = (sec % 3600) / 60
+    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }
