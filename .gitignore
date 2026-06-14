@@ -18,3 +18,7 @@ local.properties
 # fully local without it). Never commit the author's config to a public repo.
 google-services.json
 app/google-services.json
+
+# Distributable APKs live on GitHub Releases, not in the repo.
+/dist/
+*.apk

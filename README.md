@@ -62,6 +62,14 @@ The control-plane work builds on the excellent reverse-engineering in [**better-
 
 ---
 
+## Download
+
+**📦 Grab the latest APK from [Releases](https://github.com/adityadasika21/NorthStar/releases/latest)** and sideload it (you'll need to allow "install unknown apps"). No account or setup required to try it.
+
+> Heads-up: it's signed with a debug key for now, so Android may show an "unverified app" warning on install — that's expected for a community build.
+
+---
+
 ## Building it yourself
 
 ```bash

@@ -35,6 +35,10 @@ android {
             optimization {
                 enable = false
             }
+            // Hobby/open-source distribution: sign the release with the debug keystore so the
+            // published APK installs by tapping (sideload). Replace with your own release
+            // keystore if you ever ship a signed-by-you build (needed for consistent updates).
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
