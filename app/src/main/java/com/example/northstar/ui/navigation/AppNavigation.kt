@@ -1,20 +1,17 @@
 package com.example.northstar.ui.navigation
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +50,8 @@ private val bottomTabs = listOf(
     NavTab(Screen.Garage, NorthstarIcons.Wrench,  "Garage"),
     NavTab(Screen.Rides,  NorthstarIcons.History, "Rides"),
 )
+
+private val bottomRoutes = bottomTabs.map { it.screen.route }
 
 @Composable
 fun AppNavigation(
@@ -99,7 +98,29 @@ fun AppNavigation(
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
-        Box(Modifier.weight(1f)) {
+        Box(
+            Modifier
+                .weight(1f)
+                .pointerInput(showBottomNav, currentRoute) {
+                    if (!showBottomNav) return@pointerInput
+                    var dragX = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragX = 0f },
+                        onHorizontalDrag = { _, amount -> dragX += amount },
+                        onDragEnd = {
+                            val currentIndex = bottomRoutes.indexOf(currentRoute)
+                            if (currentIndex == -1 || kotlin.math.abs(dragX) < 80f) return@detectHorizontalDragGestures
+                            val nextIndex = if (dragX < 0) currentIndex + 1 else currentIndex - 1
+                            val next = bottomTabs.getOrNull(nextIndex)?.screen ?: return@detectHorizontalDragGestures
+                            navController.navigate(next.route) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        },
+                    )
+                }
+        ) {
             NavHost(
                 navController = navController,
                 startDestination = Screen.Login.route,
@@ -175,6 +196,7 @@ fun AppNavigation(
                         conn = conn,
                         onConnChange = { appViewModel.setConn(it) },
                         authViewModel = authViewModel,
+                        dashViewModel = dashViewModel,
                         onSignedOut = {
                             navController.navigate(Screen.Login.route) {
                                 popUpTo(0) { inclusive = true }
@@ -206,54 +228,41 @@ private fun NorthstarBottomNav(
     currentRoute: String?,
     onNavSelect: (Screen) -> Unit,
 ) {
-    Row(
+    NavigationBar(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xE60D0F11))
-            .border(width = 1.dp, color = Line, shape = androidx.compose.ui.graphics.RectangleShape)
-            .padding(horizontal = 10.dp, vertical = 8.dp)
             .navigationBarsPadding(),
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        tonalElevation = 3.dp,
     ) {
         bottomTabs.forEach { tab ->
             val active = currentRoute == tab.screen.route
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { onNavSelect(tab.screen) }
-                    .padding(vertical = 6.dp),
-            ) {
-                // Fixed-height container with the icon top-aligned and the active dot
-                // bottom-aligned — so reserving space for the dot doesn't shove the
-                // selected icon downward relative to the others.
-                Box(Modifier.height(29.dp), contentAlignment = Alignment.TopCenter) {
+            NavigationBarItem(
+                selected = active,
+                onClick = { onNavSelect(tab.screen) },
+                icon = {
                     Icon(
-                        tab.icon, contentDescription = tab.label,
-                        tint = if (active) Gold else TextLo,
+                        tab.icon,
+                        contentDescription = tab.label,
                         modifier = Modifier.size(23.dp),
                     )
-                    if (active) {
-                        Box(
-                            Modifier
-                                .align(Alignment.BottomCenter)
-                                .size(4.dp)
-                                .clip(CircleShape)
-                                .background(Gold)
-                        )
-                    }
-                }
-                Text(
-                    tab.label,
-                    color = if (active) Gold else TextLo,
-                    fontSize = 10.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = GeistFamily,
-                )
-            }
+                },
+                label = {
+                    Text(
+                        tab.label,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = GeistFamily,
+                    )
+                },
+                colors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            )
         }
     }
 }

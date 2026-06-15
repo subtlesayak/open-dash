@@ -120,8 +120,11 @@ fun HomeScreen(
         Spacer(Modifier.height(10.dp))
 
         NorthstarBtn(
-            "Open dash view", onClick = { onNavigate("dash") },
-            icon = NorthstarIcons.Dash, variant = BtnVariant.Secondary, size = BtnSize.Md,
+            if (conn == ConnectionState.Connected) "Open dash view" else "Connect to dash",
+            onClick = { onNavigate("dash") },
+            icon = if (conn == ConnectionState.Connected) NorthstarIcons.Dash else NorthstarIcons.Wifi,
+            variant = if (conn == ConnectionState.Connected) BtnVariant.Secondary else BtnVariant.Primary,
+            size = BtnSize.Md,
             modifier = Modifier.fillMaxWidth(),
         )
 

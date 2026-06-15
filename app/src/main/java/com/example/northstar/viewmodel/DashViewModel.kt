@@ -3,9 +3,13 @@ package com.example.northstar.viewmodel
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.Uri
 import android.os.PowerManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.northstar.data.DashWallpaperKind
+import com.example.northstar.data.DashWallpaperInfo
+import com.example.northstar.data.DashWallpaperStore
 import com.example.northstar.dash.DashKeepAliveService
 import com.example.northstar.dash.DashSession
 import com.example.northstar.dash.DashState
@@ -21,6 +25,7 @@ import com.example.northstar.dash.nav.Route
 import com.example.northstar.dash.nav.Router
 import com.example.northstar.dash.protocol.DashCommands
 import com.example.northstar.dash.video.DashEncoder
+import com.example.northstar.dash.video.DashIdleRenderer
 import com.example.northstar.dash.video.NalProcessor
 import com.example.northstar.dash.video.RtpPacketizer
 import kotlinx.coroutines.*
@@ -54,6 +59,14 @@ data class DashUiState(
     val riderBearing: Float = 0f,
     val destLatLng: Pair<Double, Double>? = null,
     val routePoints: List<GeoPoint> = emptyList(),
+    val wallpaperPath: String? = null,
+    val wallpaperKind: DashWallpaperKind? = null,
+    val wallpaperCropX: Float = 0f,
+    val wallpaperCropY: Float = 0f,
+    val wallpaperGalleryCount: Int = 0,
+    val wallpaperGalleryIndex: Int = 0,
+    val wallpaperSaving: Boolean = false,
+    val wallpaperError: String? = null,
 )
 
 class DashViewModel(app: Application) : AndroidViewModel(app) {
@@ -66,6 +79,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private val voice        = com.example.northstar.dash.nav.VoiceManager.get(app)
     private val repo         = com.example.northstar.data.SyncRepository.get(app)
     private val recorder     = com.example.northstar.data.RideRecorder()
+    private val wallpaperStore = DashWallpaperStore(app)
+    private val idleRenderer = DashIdleRenderer()
     private var recordJob: Job? = null
     private val tiles       = TileProvider(app, viewModelScope)
     private val location    = LocationTracker(app)
@@ -157,7 +172,11 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         // Reflect the rider's stored dash WiFi config (SSID may be blank until discovered).
-        _ui.value = _ui.value.copy(ssid = dashConfig.ssid, wifiPassword = dashConfig.password)
+        _ui.value = _ui.value.copy(
+            ssid = dashConfig.ssid,
+            wifiPassword = dashConfig.password,
+        )
+        publishWallpaper(wallpaperStore.currentInfo())
 
         // When we connect to a previously-unknown dash by prefix, learn + persist its exact
         // SSID so subsequent connects target it directly (no system picker again).
@@ -195,14 +214,39 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         session.onError = { msg -> _ui.value = _ui.value.copy(errorMessage = msg); refreshStage() }
-        // Joystick → map zoom only. RIGHT (0x09) = zoom in, LEFT (0x0A) = zoom out.
-        // No exit gesture, no other map control (media section is for media).
+        // Joystick left/right cycles idle wallpapers; during navigation it remains zoom.
         session.onButton = { btn ->
             val code = btn.toInt() and 0xFF
             val label = when (code) {
-                0x09 -> { zoomIn();  "Zoom in (right)" }
-                0x0A -> { zoomOut(); "Zoom out (left)" }
-                else -> "code 0x${code.toString(16).uppercase()}"
+                0x09 -> {
+                    if (isIdleWallpaperMode()) {
+                        cycleWallpaper(1)
+                        "Next wallpaper"
+                    } else {
+                        zoomIn()
+                        "Zoom in (right)"
+                    }
+                }
+                0x0A -> {
+                    if (isIdleWallpaperMode()) {
+                        cycleWallpaper(-1)
+                        "Previous wallpaper"
+                    } else {
+                        zoomOut()
+                        "Zoom out (left)"
+                    }
+                }
+                else -> when {
+                    isIdleWallpaperMode() && isNextWallpaperButton(code) -> {
+                        cycleWallpaper(1)
+                        "Next wallpaper"
+                    }
+                    isIdleWallpaperMode() && isPreviousWallpaperButton(code) -> {
+                        cycleWallpaper(-1)
+                        "Previous wallpaper"
+                    }
+                    else -> "code 0x${code.toString(16).uppercase()}"
+                }
             }
             _ui.value = _ui.value.copy(lastButton = label)
         }
@@ -287,6 +331,100 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     fun setWifiPassword(p: String) { dashConfig.password = p; _ui.value = _ui.value.copy(wifiPassword = p) }
     /** Forget the paired dash so the next connect rediscovers any RE_* dash by prefix. */
     fun forgetDash() { dashConfig.forgetDash(); _ui.value = _ui.value.copy(ssid = "") }
+
+    fun setWallpaperFromUri(uri: Uri, horizontalBias: Float = 0f, verticalBias: Float = 0f) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ui.update { it.copy(wallpaperSaving = true, wallpaperError = null) }
+            runCatching {
+                wallpaperStore.saveFromUri(uri, horizontalBias, verticalBias)
+                wallpaperStore.currentInfo()
+            }.onSuccess { info ->
+                    lastSignature = ""
+                    publishWallpaper(info, saving = false, error = null)
+                }
+                .onFailure { err ->
+                    val msg = err.message ?: "Unable to save wallpaper"
+                    _ui.update {
+                        it.copy(
+                            wallpaperSaving = false,
+                            wallpaperError = msg,
+                            errorMessage = msg,
+                        )
+                    }
+                }
+        }
+    }
+
+    fun addWallpapersFromUris(uris: List<Uri>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _ui.update { it.copy(wallpaperSaving = true, wallpaperError = null) }
+            runCatching {
+                wallpaperStore.saveManyFromUris(uris)
+                wallpaperStore.currentInfo()
+            }.onSuccess { info ->
+                lastSignature = ""
+                publishWallpaper(info, saving = false, error = null)
+            }.onFailure { err ->
+                val msg = err.message ?: "Unable to save wallpapers"
+                _ui.update {
+                    it.copy(
+                        wallpaperSaving = false,
+                        wallpaperError = msg,
+                        errorMessage = msg,
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearWallpaper() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val next = wallpaperStore.clearCurrent()
+            lastSignature = ""
+            publishWallpaper(next, saving = false, error = null)
+        }
+    }
+
+    fun cycleWallpaperFromSettings(delta: Int) {
+        cycleWallpaper(delta)
+    }
+
+    private fun cycleWallpaper(delta: Int) {
+        val next = wallpaperStore.cycle(delta)
+        lastSignature = ""
+        publishWallpaper(next)
+    }
+
+    private fun publishWallpaper(
+        info: DashWallpaperInfo?,
+        saving: Boolean = _ui.value.wallpaperSaving,
+        error: String? = _ui.value.wallpaperError,
+    ) {
+        val gallery = wallpaperStore.allInfos()
+        val index = info?.let { current -> gallery.indexOfFirst { it.slot == current.slot } } ?: -1
+        _ui.update {
+            it.copy(
+                wallpaperPath = info?.path,
+                wallpaperKind = info?.kind,
+                wallpaperCropX = info?.horizontalBias ?: 0f,
+                wallpaperCropY = info?.verticalBias ?: 0f,
+                wallpaperGalleryCount = gallery.size,
+                wallpaperGalleryIndex = if (index >= 0) index else 0,
+                wallpaperSaving = saving,
+                wallpaperError = error,
+                errorMessage = error ?: it.errorMessage,
+            )
+        }
+    }
+
+    private fun isIdleWallpaperMode(): Boolean =
+        destLat == null && destLng == null && route == null
+
+    private fun isNextWallpaperButton(code: Int): Boolean =
+        code == 0x06 || code == 0x09 || code == 0x22
+
+    private fun isPreviousWallpaperButton(code: Int): Boolean =
+        code == 0x05 || code == 0x07 || code == 0x0A
 
     // ── Destination + routing ───────────────────────────────────────────────
 
@@ -582,6 +720,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         val camHeading = if (haveTarget) camHdg else heading
 
         val sig = buildString {
+            append(if (r == null && dLat == null && dLng == null) "idle:${_ui.value.wallpaperPath}" else "nav")
             // High resolution (6 dp ≈ 0.1 m, 0.1° heading) so every smoothed step redraws
             // for buttery motion. Safe from standstill jitter because the camera is fed the
             // SMOOTHED position (which settles and stops), not raw GPS.
@@ -634,6 +773,16 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     ) {
         val bmp = frameBitmap ?: return
         val loc = location.location.value
+        if (route == null && destLat == null && destLng == null) {
+            idleRenderer.draw(
+                Canvas(bmp),
+                _ui.value.wallpaperPath,
+                _ui.value.wallpaperKind,
+                _ui.value.wallpaperCropX,
+                _ui.value.wallpaperCropY,
+            )
+            return
+        }
         // Glanceable ETA — minutes remaining + a stable 12-hour arrival clock. Both come
         // from the smoothed estimate so they don't flicker every second.
         val mins = _ui.value.etaMinutes
@@ -747,6 +896,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private fun teardown() {
         streamJob?.cancel(); streamJob = null
         encoder?.release(); encoder = null
+        idleRenderer.release()
         frameBitmap?.recycle(); frameBitmap = null
     }
 

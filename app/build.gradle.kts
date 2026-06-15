@@ -31,6 +31,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".mui3"
+            resValue("string", "app_name", "Northstar M3")
+        }
         release {
             optimization {
                 enable = false
@@ -47,6 +51,7 @@ android {
     }
     buildFeatures {
         compose = true
+        resValues = true
     }
 }
 

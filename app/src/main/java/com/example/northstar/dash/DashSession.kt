@@ -57,6 +57,7 @@ class DashSession(private val scope: CoroutineScope) {
     @Volatile private var navTotalUnit = DashCommands.NAV_UNIT_METERS
     @Volatile private var navEta: String? = null
     @Volatile private var navActive = false
+    @Volatile private var navChromeEnabled = false
 
     /** Push the latest turn-by-turn figures; sent to the dash at 1 Hz. */
     fun updateNavInfo(
@@ -70,6 +71,7 @@ class DashSession(private val scope: CoroutineScope) {
         navTotalUnit = totalUnit
         navEta = etaHHMM
         navActive = true
+        navChromeEnabled = true
     }
 
     /**
@@ -100,7 +102,8 @@ class DashSession(private val scope: CoroutineScope) {
     fun startStreaming() {
         if (_state.value != DashState.READY) return
         _state.value = DashState.STREAMING
-        // Projection-on route card + faster keep-alive begin now
+        // Projection heartbeat is always needed. Route-card/nav-info keepalives are
+        // only for active navigation; idle wallpaper mode should stay chrome-free.
         launchProjectionHeartbeat()
         launchRouteCardKeepAlive()
         launchNavInfo()
@@ -111,9 +114,20 @@ class DashSession(private val scope: CoroutineScope) {
     fun updateRouteCard(name: String) {
         destinationName = name.ifBlank { "Northstar" }
         navActive = false   // new destination — old figures are stale until the next updateNavInfo
-        if (_state.value == DashState.READY || _state.value == DashState.STREAMING) {
+        navChromeEnabled = destinationName != "Northstar"
+        if (navChromeEnabled && (_state.value == DashState.READY || _state.value == DashState.STREAMING)) {
             scope.launch(Dispatchers.IO) {
                 socket?.send(liveRouteCard(projectionOn = true))
+            }
+        } else if (_state.value == DashState.READY || _state.value == DashState.STREAMING) {
+            scope.launch(Dispatchers.IO) {
+                socket?.send(DashCommands.projectionStop())
+                delay(40)
+                socket?.send(DashCommands.projectionOff())
+                delay(40)
+                socket?.send(DashCommands.projectionFrame())
+                delay(40)
+                socket?.send(DashCommands.projectionOn())
             }
         }
     }
@@ -124,6 +138,7 @@ class DashSession(private val scope: CoroutineScope) {
         sessionJob?.cancel(); sessionJob = null
         rxJob?.cancel(); projHbJob?.cancel(); routeCardJob?.cancel(); heartbeatJob?.cancel(); navInfoJob?.cancel()
         navActive = false
+        navChromeEnabled = false
         socket?.let {
             runCatching { it.send(DashCommands.projectionStop()) }
             runCatching { it.send(DashCommands.projectionOff()) }
@@ -172,7 +187,7 @@ class DashSession(private val scope: CoroutineScope) {
             }
             Log.i(TAG, "Authenticated ✓")
 
-            enterNavMode(sock)
+            if (navChromeEnabled) enterNavMode(sock) else enterIdleProjectionMode(sock)
             _state.value = DashState.READY
             Log.i(TAG, "READY ✓")
 
@@ -200,6 +215,16 @@ class DashSession(private val scope: CoroutineScope) {
         sock.send(DashCommands.navStart()); delay(40)                 // z2, ONCE
         sock.send(DashCommands.routeCard(destinationName, projectionOn = true))
         Log.i(TAG, "Nav mode kick sent")
+    }
+
+    /**
+     * Idle wallpaper mode: open projection without route-card/nav-start chrome.
+     * Active navigation still uses [enterNavMode] unchanged.
+     */
+    private suspend fun enterIdleProjectionMode(sock: DashSocket) {
+        sock.send(DashCommands.projectionFrame()); delay(60)
+        sock.send(DashCommands.projectionOn()); delay(40)
+        Log.i(TAG, "Idle projection kick sent")
     }
 
     private fun launchReceiveLoop(sock: DashSocket) {
@@ -328,7 +353,7 @@ class DashSession(private val scope: CoroutineScope) {
         routeCardJob?.cancel()
         routeCardJob = scope.launch(Dispatchers.IO) {
             while (isActive && _state.value == DashState.STREAMING) {
-                socket?.send(liveRouteCard(projectionOn = true))
+                if (navChromeEnabled) socket?.send(liveRouteCard(projectionOn = true))
                 delay(ROUTE_CARD_MS)
             }
         }
@@ -338,7 +363,7 @@ class DashSession(private val scope: CoroutineScope) {
         navInfoJob?.cancel()
         navInfoJob = scope.launch(Dispatchers.IO) {
             while (isActive && _state.value == DashState.STREAMING) {
-                if (navActive) {
+                if (navChromeEnabled && navActive) {
                     socket?.send(
                         DashCommands.activeNavPacket(
                             maneuver = navManeuver,

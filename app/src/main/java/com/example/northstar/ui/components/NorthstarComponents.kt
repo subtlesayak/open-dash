@@ -1,6 +1,7 @@
 package com.example.northstar.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -10,17 +11,31 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -29,11 +44,11 @@ import androidx.compose.ui.unit.sp
 import com.example.northstar.ui.theme.*
 
 // ---- Shape constants ----
-val CardShape    = RoundedCornerShape(18.dp)
-val BtnShape     = RoundedCornerShape(14.dp)
-val InputShape   = RoundedCornerShape(12.dp)
+val CardShape    = RoundedCornerShape(8.dp)
+val BtnShape     = RoundedCornerShape(8.dp)
+val InputShape   = RoundedCornerShape(8.dp)
 val ChipShape    = CircleShape
-val IconBtnShape = RoundedCornerShape(14.dp)
+val IconBtnShape = RoundedCornerShape(8.dp)
 
 // ---- Card ----
 @Composable
@@ -44,20 +59,43 @@ fun NorthstarCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val border = if (glow)
-        Modifier.border(1.dp, GoldTint2, CardShape)
-    else
-        Modifier.border(1.dp, Line, CardShape)
-
-    Column(
-        modifier = modifier
-            .clip(CardShape)
-            .background(Surf1)
-            .then(border)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(padding),
-        content = content,
+    val border = BorderStroke(
+        1.dp,
+        if (glow) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant,
     )
+
+    Surface(
+        modifier = modifier,
+        shape = CardShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = if (glow) 4.dp else 0.dp,
+        shadowElevation = if (glow) 2.dp else 0.dp,
+        border = border,
+    ) {
+        Column(
+            modifier = Modifier
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(padding),
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun NorthstarSurfaceCard(
+    modifier: Modifier = Modifier,
+    padding: Dp = 18.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CardShape),
+        shape = CardShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(Modifier.padding(padding), content = content)
+    }
 }
 
 // ---- Buttons ----
@@ -74,45 +112,68 @@ fun NorthstarBtn(
     size: BtnSize = BtnSize.Md,
     enabled: Boolean = true,
 ) {
-    val (bgColor, fgColor, borderColor, hasShadow) = when (variant) {
-        BtnVariant.Primary   -> listOf(Gold, OnGold, Color.Transparent, true)
-        BtnVariant.Secondary -> listOf(Surf2, TextHi, Line2, false)
-        BtnVariant.Ghost     -> listOf(Color.Transparent, TextMid, Line2, false)
-        BtnVariant.Danger    -> listOf(Color.Transparent, Alert, Alert.copy(alpha = 0.4f), false)
-    }
     val height = when (size) { BtnSize.Lg -> 58.dp; BtnSize.Md -> 50.dp; BtnSize.Sm -> 40.dp }
     val fontSize = when (size) { BtnSize.Lg -> 16.sp; BtnSize.Md -> 15.sp; BtnSize.Sm -> 13.5.sp }
     val iconSize = when (size) { BtnSize.Sm -> 17.dp; else -> 20.dp }
-
-    Row(
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier
-            .height(height)
-            .clip(BtnShape)
-            .background(bgColor as Color)
-            .border(1.dp, borderColor as Color, BtnShape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 20.dp),
-    ) {
+    val content: @Composable RowScope.() -> Unit = {
         if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = fgColor as Color,
                 modifier = Modifier.size(iconSize),
             )
             Spacer(Modifier.width(9.dp))
         }
         Text(
             text = label,
-            color = fgColor as Color,
             fontSize = fontSize,
             fontWeight = FontWeight.SemiBold,
             fontFamily = GeistFamily,
-            letterSpacing = (-0.15).sp,
+            letterSpacing = 0.sp,
             maxLines = 1,
         )
+    }
+
+    when (variant) {
+        BtnVariant.Primary -> Button(
+            onClick = onClick,
+            modifier = modifier.height(height),
+            enabled = enabled,
+            shape = BtnShape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+            )
+        ) { content() }
+        BtnVariant.Secondary -> OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.height(height),
+            enabled = enabled,
+            shape = BtnShape,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        ) { content() }
+        BtnVariant.Ghost -> TextButton(
+            onClick = onClick,
+            modifier = modifier.height(height),
+            enabled = enabled,
+            shape = BtnShape,
+            colors = ButtonDefaults.textButtonColors(
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ),
+        ) { content() }
+        BtnVariant.Danger -> OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.height(height),
+            enabled = enabled,
+            shape = BtnShape,
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            ),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.45f)),
+        ) { content() }
     }
 }
 
@@ -126,20 +187,16 @@ fun NorthstarIconBtn(
     active: Boolean = false,
     tint: Color? = null,
 ) {
-    val bg = if (active) GoldTint else Surf2
-    val bd = if (active) GoldTint2 else Line2
-    val iconTint = tint ?: if (active) Gold else TextMid
-
-    Box(
-        contentAlignment = Alignment.Center,
+    IconButton(
+        onClick = onClick,
         modifier = modifier
-            .size(size)
-            .clip(IconBtnShape)
-            .background(bg)
-            .border(1.dp, bd, IconBtnShape)
-            .clickable(onClick = onClick),
+            .size(size),
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = tint ?: if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
     ) {
-        Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -154,67 +211,64 @@ fun NorthstarChip(
     icon: ImageVector? = null,
     modifier: Modifier = Modifier,
 ) {
-    val (bg, fg, bd) = when (tone) {
-        ChipTone.Gold    -> Triple(GoldTint, Gold, GoldTint2)
-        ChipTone.Warn    -> Triple(Warn.copy(alpha = 0.13f), Warn, Warn.copy(alpha = 0.3f))
-        ChipTone.Alert   -> Triple(Alert.copy(alpha = 0.13f), Alert, Alert.copy(alpha = 0.32f))
-        ChipTone.Off     -> Triple(Surf1, TextLo, Line)
-        ChipTone.Neutral -> Triple(Surf2, TextMid, Line2)
+    val (container, labelColor, outline) = when (tone) {
+        ChipTone.Gold -> Triple(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primary.copy(alpha = 0.38f))
+        ChipTone.Warn -> Triple(Warn.copy(alpha = 0.13f), Warn, Warn.copy(alpha = 0.3f))
+        ChipTone.Alert -> Triple(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.error, MaterialTheme.colorScheme.error.copy(alpha = 0.32f))
+        ChipTone.Off -> Triple(MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.colorScheme.outline, MaterialTheme.colorScheme.outlineVariant)
+        ChipTone.Neutral -> Triple(MaterialTheme.colorScheme.surfaceContainerHigh, MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.outlineVariant)
     }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    AssistChip(
+        onClick = {},
+        enabled = false,
         modifier = modifier
-            .height(30.dp)
-            .clip(ChipShape)
-            .background(bg)
-            .border(1.dp, bd, ChipShape)
-            .padding(horizontal = 12.dp),
-    ) {
-        if (dot) {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(fg))
-        }
-        if (icon != null) {
-            Icon(icon, contentDescription = null, tint = fg, modifier = Modifier.size(14.dp))
-        }
-        Text(
-            label, color = fg, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
-            fontFamily = GeistFamily, maxLines = 1,
-        )
-    }
+            .height(32.dp),
+        label = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                if (dot) Box(Modifier.size(7.dp).clip(CircleShape).background(labelColor))
+                Text(
+                    label, color = labelColor, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold,
+                    fontFamily = GeistFamily, maxLines = 1,
+                )
+            }
+        },
+        leadingIcon = icon?.let {
+            { Icon(it, contentDescription = null, tint = labelColor, modifier = Modifier.size(14.dp)) }
+        },
+        shape = ChipShape,
+        border = AssistChipDefaults.assistChipBorder(
+            enabled = false,
+            borderColor = outline,
+            disabledBorderColor = outline,
+        ),
+        colors = AssistChipDefaults.assistChipColors(
+            disabledContainerColor = container,
+            disabledLabelColor = labelColor,
+            disabledLeadingIconContentColor = labelColor,
+        ),
+    )
 }
 
 // ---- Toggle ----
 @Composable
 fun NorthstarToggle(on: Boolean, onChange: (Boolean) -> Unit) {
-    val track = if (on) Gold else Surf3
-    val bd    = if (on) Gold else Line3
-    val knob  = if (on) OnGold else TextMid
-    val knobOffset = if (on) 22.dp else 2.5.dp
-
-    Box(
-        modifier = Modifier
-            .width(50.dp).height(30.dp)
-            .clip(CircleShape)
-            .background(track)
-            .border(1.dp, bd, CircleShape)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-            ) { onChange(!on) },
-    ) {
-        Box(
-            Modifier
-                .padding(start = knobOffset, top = 2.5.dp)
-                .size(23.dp)
-                .clip(CircleShape)
-                .background(knob)
-        )
-    }
+    Switch(
+        checked = on,
+        onCheckedChange = onChange,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+            checkedTrackColor = MaterialTheme.colorScheme.primary,
+            checkedBorderColor = MaterialTheme.colorScheme.primary,
+            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+        ),
+    )
 }
 
 // ---- Segmented control ----
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NorthstarSegmented(
     options: List<String>,
@@ -222,28 +276,26 @@ fun NorthstarSegmented(
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(Surf1)
-            .border(1.dp, Line, RoundedCornerShape(12.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        options.forEach { opt ->
-            val active = opt == selected
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .weight(1f)
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(9.dp))
-                    .background(if (active) Surf3 else Color.Transparent)
-                    .clickable { onSelect(opt) },
+    SingleChoiceSegmentedButtonRow(modifier = modifier) {
+        options.forEachIndexed { index, opt ->
+            SegmentedButton(
+                selected = opt == selected,
+                onClick = { onSelect(opt) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                    activeContentColor = MaterialTheme.colorScheme.primary,
+                    inactiveContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    inactiveContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    activeBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    inactiveBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                ),
+                icon = {},
             ) {
                 Text(
-                    opt, color = if (active) TextHi else TextLo,
-                    fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    opt,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
                     fontFamily = GeistFamily,
                 )
             }
@@ -392,7 +444,7 @@ fun ScreenHeader(
                         Text(
                             title, color = TextHi, fontSize = 23.sp,
                             fontWeight = FontWeight.Bold, fontFamily = GeistFamily,
-                            letterSpacing = (-0.46).sp,
+                            letterSpacing = 0.sp,
                         )
                     }
                 }

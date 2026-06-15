@@ -1,10 +1,12 @@
 package com.example.northstar.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import com.example.northstar.ui.components.CircularDash
+import com.example.northstar.ui.components.BtnShape
 import com.example.northstar.ui.theme.*
 import com.example.northstar.viewmodel.AuthViewModel
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
@@ -146,37 +149,50 @@ fun LoginScreen(
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (loading) Surf2 else Color(0xFFF8F8F8))
-                            .clickable(enabled = !loading) { launchGoogleSignIn() }
-                            .padding(horizontal = 20.dp),
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            if (loading) "Signing in…" else "Continue with Google",
-                            color = if (loading) TextMid else Color(0xFF1F1F1F),
-                            fontSize = 15.sp, fontWeight = FontWeight.Medium,
-                        )
+                        Button(
+                            onClick = { launchGoogleSignIn() },
+                            enabled = !loading,
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = BtnShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFF8F8F8),
+                                contentColor = Color(0xFF1F1F1F),
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        ) {
+                            Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (loading) "Signing in…" else "Continue with Google",
+                                fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
                     Spacer(Modifier.height(14.dp))
                 }
 
                 // Always available: use the app locally without an account (no sync).
-                Text(
-                    if (authState.syncAvailable) "Continue without signing in" else "Continue",
-                    color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Surf2)
-                        .clickable(enabled = !loading) { onSkip() }
-                        .wrapContentHeight(Alignment.CenterVertically),
-                )
+                OutlinedButton(
+                    onClick = onSkip,
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = BtnShape,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Text(
+                        if (authState.syncAvailable) "Continue without signing in" else "Continue",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
 
                 Spacer(Modifier.height(18.dp))
 
