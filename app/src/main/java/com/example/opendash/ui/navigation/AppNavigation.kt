@@ -1,5 +1,6 @@
 package com.example.opendash.ui.navigation
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -19,7 +20,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -57,6 +57,8 @@ private val bottomTabs = listOf(
 )
 
 private val bottomRoutes = bottomTabs.map { it.screen.route }
+private val homeChildRoutes = listOf(Screen.Route.route, Screen.Dash.route, Screen.Rides.route)
+private val shellRoutes = bottomRoutes + homeChildRoutes
 
 @Composable
 fun AppNavigation(
@@ -69,7 +71,8 @@ fun AppNavigation(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val showBottomNav = currentRoute in bottomRoutes
+    val showBottomNav = currentRoute in shellRoutes
+    val canSwipeBottomTabs = currentRoute in bottomRoutes
 
     val garageTab by appViewModel.garageTab.collectAsState()
     val routeState by routeViewModel.state.collectAsState()
@@ -99,12 +102,39 @@ fun AppNavigation(
         }
     }
 
+    fun navigateHome() {
+        navController.navigate(Screen.Home.route) {
+            popUpTo(Screen.Home.route) {
+                inclusive = false
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    fun navigateTopLevel(screen: Screen) {
+        if (screen.route == Screen.Home.route) {
+            navigateHome()
+            return
+        }
+        navController.navigate(screen.route) {
+            popUpTo(Screen.Home.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
+        }
+    }
+
+    BackHandler(enabled = showBottomNav && currentRoute != Screen.Home.route) {
+        navigateHome()
+    }
+
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Box(
             Modifier
                 .weight(1f)
-                .pointerInput(showBottomNav, currentRoute) {
-                    if (!showBottomNav) return@pointerInput
+                .pointerInput(canSwipeBottomTabs, currentRoute) {
+                    if (!canSwipeBottomTabs) return@pointerInput
                     var dragX = 0f
                     detectHorizontalDragGestures(
                         onDragStart = { dragX = 0f },
@@ -114,11 +144,7 @@ fun AppNavigation(
                             if (currentIndex == -1 || kotlin.math.abs(dragX) < 80f) return@detectHorizontalDragGestures
                             val nextIndex = if (dragX < 0) currentIndex + 1 else currentIndex - 1
                             val next = bottomTabs.getOrNull(nextIndex)?.screen ?: return@detectHorizontalDragGestures
-                            navController.navigate(next.route) {
-                                popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+                            navigateTopLevel(next)
                         },
                     )
                 }
@@ -126,10 +152,22 @@ fun AppNavigation(
             NavHost(
                 navController = navController,
                 startDestination = Screen.Login.route,
-                enterTransition = { slideInHorizontally(tween(260)) { it } },
-                exitTransition = { slideOutHorizontally(tween(260)) { -it } },
-                popEnterTransition = { slideInHorizontally(tween(260)) { -it } },
-                popExitTransition = { slideOutHorizontally(tween(260)) { it } },
+                enterTransition = {
+                    val direction = transitionDirection(initialState.destination.route, targetState.destination.route)
+                    slideInHorizontally(tween(260)) { width -> width * direction }
+                },
+                exitTransition = {
+                    val direction = transitionDirection(initialState.destination.route, targetState.destination.route)
+                    slideOutHorizontally(tween(260)) { width -> -width * direction }
+                },
+                popEnterTransition = {
+                    val direction = transitionDirection(targetState.destination.route, initialState.destination.route)
+                    slideInHorizontally(tween(260)) { width -> -width * direction }
+                },
+                popExitTransition = {
+                    val direction = transitionDirection(targetState.destination.route, initialState.destination.route)
+                    slideOutHorizontally(tween(260)) { width -> width * direction }
+                },
             ) {
                 composable(Screen.Login.route) {
                     LoginScreen(
@@ -174,7 +212,7 @@ fun AppNavigation(
                 composable(Screen.Route.route) {
                     RouteScreen(
                         routeViewModel = routeViewModel,
-                        onBack = { navController.popBackStack() },
+                        onBack = { navigateHome() },
                         onSentToDash = { destName ->
                             dashViewModel.setDestination(
                                 name = destName,
@@ -225,17 +263,29 @@ fun AppNavigation(
 
         if (showBottomNav) {
             OpenDashBottomNav(
-                currentRoute = currentRoute,
-                onNavSelect = { screen ->
-                    navController.navigate(screen.route) {
-                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
+                currentRoute = activeBottomRoute(currentRoute),
+                onNavSelect = { screen -> navigateTopLevel(screen) },
             )
         }
     }
+}
+
+private fun activeBottomRoute(route: String?): String? =
+    if (route in homeChildRoutes) Screen.Home.route else route
+
+private fun transitionDirection(fromRoute: String?, toRoute: String?): Int =
+    if (navOrderIndex(toRoute) >= navOrderIndex(fromRoute)) 1 else -1
+
+private fun navOrderIndex(route: String?): Int = when (route) {
+    Screen.Home.route -> 0
+    Screen.Route.route -> 1
+    Screen.Dash.route -> 2
+    Screen.Rides.route -> 3
+    Screen.Vehicles.route -> 10
+    Screen.Expenses.route -> 20
+    Screen.Garage.route -> 30
+    Screen.Settings.route -> 40
+    else -> 0
 }
 
 @Composable

@@ -127,22 +127,10 @@ fun SettingsScreen(
         ScreenHeader(title = "More")
 
         OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
-            MoreRow(OpenDashIcons.Gear, "Settings", "Connection, wallpaper, voice, units")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
-            MoreRow(OpenDashIcons.Dash, "About", "OpenDash v1.2")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
-            MoreRow(OpenDashIcons.Bell, "Help", "Connection and dash wallpaper guidance")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
-            MoreRow(OpenDashIcons.Lock, "Terms & Conditions", "Usage terms")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
-            MoreRow(OpenDashIcons.Flag, "License", "Open source notices")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
-            MoreRow(OpenDashIcons.Cal, "Changelog", "Version history")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
             MoreRow(
                 OpenDashIcons.Sync,
-                "Check for updates",
-                updateMessage ?: "Installed version 1.2",
+                "Update from GitHub",
+                updateMessage ?: "Check the latest OpenDash release",
                 last = true,
                 control = {
                     OpenDashBtn(
@@ -153,6 +141,21 @@ fun SettingsScreen(
                     )
                 },
             )
+        }
+
+        SectionLabel("More")
+        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+            MoreRow(OpenDashIcons.Gear, "Settings", "Connection, ride, wallpaper, voice, units")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Dash, "About", "OpenDash v1.2")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Bell, "Help", "Connection and dash wallpaper guidance")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Lock, "Terms & Conditions", "Usage terms")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Flag, "License", "Open source notices")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Cal, "Changelog", "Version history", last = true)
         }
 
         // Account card

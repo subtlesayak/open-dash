@@ -29,6 +29,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.opendash.ui.OpenDashIcons
+import com.example.opendash.ui.components.BtnSize
+import com.example.opendash.ui.components.BtnVariant
+import com.example.opendash.ui.components.OpenDashBtn
 import com.example.opendash.ui.components.OpenDashCard
 import com.example.opendash.ui.components.OpenDashDivider
 import com.example.opendash.ui.components.OpenDashIconBtn
@@ -54,15 +57,8 @@ fun VehiclesScreen() {
         mutableStateOf(
             listOf(
                 VehicleProfile(
-                    title = "Royal Enfield Himalayan 450",
-                    nickname = "Primary bike",
-                    puc = "Not set",
-                    insurance = "Not set",
-                    service = "Not set",
-                ),
-                VehicleProfile(
-                    title = "Honda Activa",
-                    nickname = "Secondary vehicle",
+                    title = "Himalayan 450",
+                    nickname = "Default vehicle",
                     puc = "Not set",
                     insurance = "Not set",
                     service = "Not set",
@@ -71,6 +67,7 @@ fun VehiclesScreen() {
         )
     }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
+    var addingVehicle by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -91,15 +88,44 @@ fun VehiclesScreen() {
                 )
             }
         }
+
+        Spacer(Modifier.height(14.dp))
+        OpenDashBtn(
+            "Add vehicle",
+            onClick = { addingVehicle = true },
+            icon = OpenDashIcons.Plus,
+            variant = BtnVariant.Primary,
+            size = BtnSize.Md,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 
     editingIndex?.let { index ->
         EditVehicleDialog(
+            dialogTitle = "Edit vehicle",
             vehicle = vehicles[index],
             onDismiss = { editingIndex = null },
             onSave = { updated ->
                 vehicles = vehicles.toMutableList().also { it[index] = updated }
                 editingIndex = null
+            },
+        )
+    }
+
+    if (addingVehicle) {
+        EditVehicleDialog(
+            dialogTitle = "Add vehicle",
+            vehicle = VehicleProfile(
+                title = "",
+                nickname = "",
+                puc = "Not set",
+                insurance = "Not set",
+                service = "Not set",
+            ),
+            onDismiss = { addingVehicle = false },
+            onSave = { updated ->
+                vehicles = vehicles + updated
+                addingVehicle = false
             },
         )
     }
@@ -146,6 +172,7 @@ private fun VehicleMeta(label: String, value: String, alert: Boolean = false) {
 
 @Composable
 private fun EditVehicleDialog(
+    dialogTitle: String,
     vehicle: VehicleProfile,
     onSave: (VehicleProfile) -> Unit,
     onDismiss: () -> Unit,
@@ -159,7 +186,7 @@ private fun EditVehicleDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit vehicle", color = TextHi) },
+        title = { Text(dialogTitle, color = TextHi) },
         text = {
             Column {
                 VehicleTextField(title, { title = it }, "Vehicle name")
