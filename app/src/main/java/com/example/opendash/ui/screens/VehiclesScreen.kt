@@ -1,9 +1,5 @@
 package com.example.opendash.ui.screens
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,15 +10,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.opendash.ui.OpenDashIcons
@@ -33,14 +36,42 @@ import com.example.opendash.ui.components.ScreenHeader
 import com.example.opendash.ui.theme.Alert
 import com.example.opendash.ui.theme.GeistFamily
 import com.example.opendash.ui.theme.Gold
-import com.example.opendash.ui.theme.Line
-import com.example.opendash.ui.theme.Surf2
 import com.example.opendash.ui.theme.TextHi
 import com.example.opendash.ui.theme.TextLo
 import com.example.opendash.ui.theme.TextMid
 
+private data class VehicleProfile(
+    val title: String,
+    val nickname: String,
+    val puc: String,
+    val insurance: String,
+    val service: String,
+)
+
 @Composable
 fun VehiclesScreen() {
+    var vehicles by remember {
+        mutableStateOf(
+            listOf(
+                VehicleProfile(
+                    title = "Royal Enfield Himalayan 450",
+                    nickname = "Primary bike",
+                    puc = "Not set",
+                    insurance = "Not set",
+                    service = "Not set",
+                ),
+                VehicleProfile(
+                    title = "Honda Activa",
+                    nickname = "Secondary vehicle",
+                    puc = "Not set",
+                    insurance = "Not set",
+                    service = "Not set",
+                ),
+            ),
+        )
+    }
+    var editingIndex by remember { mutableStateOf<Int?>(null) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -48,42 +79,29 @@ fun VehiclesScreen() {
             .padding(18.dp)
             .padding(bottom = 24.dp),
     ) {
-        ScreenHeader(
-            title = "Profile",
-            trailing = { OpenDashIconBtn(OpenDashIcons.Edit, onClick = {}) },
-        )
+        ScreenHeader(title = "Vehicles")
 
         SectionTitle("My Vehicles")
         OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
-            VehicleBlock(
-                title = "Royal Enfield Himalayan 450",
-                nickname = "Four50",
-                puc = "Expired",
-                pucAlert = true,
-                insurance = "19-Feb-2030",
-                service = "20000 km or 12 Months",
-            )
-            OpenDashDivider(Modifier.padding(vertical = 14.dp))
-            VehicleBlock(
-                title = "Honda Activa",
-                nickname = "",
-                puc = "NA",
-                pucAlert = true,
-                insurance = "NA",
-                service = "Not set",
-            )
+            vehicles.forEachIndexed { index, vehicle ->
+                if (index > 0) OpenDashDivider(Modifier.padding(vertical = 14.dp))
+                VehicleBlock(
+                    vehicle = vehicle,
+                    onEdit = { editingIndex = index },
+                )
+            }
         }
+    }
 
-        SectionTitle("Personal Details")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 18.dp) {
-            DetailRow(OpenDashIcons.Motor, "Name", "Sayak Sajith")
-            DetailRow(OpenDashIcons.Wifi, "Mobile", "8547606755")
-            DetailRow(OpenDashIcons.Target, "Gender", "Male")
-            DetailRow(OpenDashIcons.Cal, "Date of Birth", "11-Apr-1999")
-            DetailRow(OpenDashIcons.Drop, "Blood Group", "O+")
-            DetailRow(OpenDashIcons.Home, "Home Location", "Bengaluru, Karnataka")
-            DetailRow(OpenDashIcons.Motor, "Display Name", "Sayakopath", last = true)
-        }
+    editingIndex?.let { index ->
+        EditVehicleDialog(
+            vehicle = vehicles[index],
+            onDismiss = { editingIndex = null },
+            onSave = { updated ->
+                vehicles = vehicles.toMutableList().also { it[index] = updated }
+                editingIndex = null
+            },
+        )
     }
 }
 
@@ -100,26 +118,19 @@ private fun SectionTitle(label: String) {
 }
 
 @Composable
-private fun VehicleBlock(
-    title: String,
-    nickname: String,
-    puc: String,
-    pucAlert: Boolean,
-    insurance: String,
-    service: String,
-) {
+private fun VehicleBlock(vehicle: VehicleProfile, onEdit: () -> Unit) {
     Row(verticalAlignment = Alignment.Top) {
         Icon(OpenDashIcons.Motor, contentDescription = null, tint = TextMid, modifier = Modifier.size(30.dp).padding(top = 5.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = Gold, fontSize = 16.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
-            if (nickname.isNotBlank()) Text(nickname, color = TextMid, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+            Text(vehicle.title, color = Gold, fontSize = 16.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+            if (vehicle.nickname.isNotBlank()) Text(vehicle.nickname, color = TextMid, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
             Spacer(Modifier.height(14.dp))
-            VehicleMeta("PUC", puc, alert = pucAlert)
-            VehicleMeta("Insurance", insurance)
-            VehicleMeta("Service", service)
+            VehicleMeta("PUC", vehicle.puc, alert = vehicle.puc.isProblemValue())
+            VehicleMeta("Insurance", vehicle.insurance, alert = vehicle.insurance.isProblemValue())
+            VehicleMeta("Service", vehicle.service)
         }
-        OpenDashIconBtn(OpenDashIcons.Edit, onClick = {}, size = 34.dp)
+        OpenDashIconBtn(OpenDashIcons.Edit, onClick = onEdit, size = 34.dp)
     }
 }
 
@@ -134,19 +145,65 @@ private fun VehicleMeta(label: String, value: String, alert: Boolean = false) {
 }
 
 @Composable
-private fun DetailRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, last: Boolean = false) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(vertical = 11.dp)) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(8.dp)).background(Surf2).border(1.dp, Line, RoundedCornerShape(8.dp)),
-        ) {
-            Icon(icon, contentDescription = null, tint = TextMid, modifier = Modifier.size(22.dp))
-        }
-        Spacer(Modifier.width(18.dp))
-        Column(Modifier.weight(1f)) {
-            Text(label, color = TextLo, fontSize = 12.5.sp)
-            Text(value, color = Gold, fontSize = 16.sp, fontWeight = FontWeight.Medium, fontFamily = GeistFamily)
-        }
-    }
-    if (!last) OpenDashDivider(Modifier.padding(start = 60.dp))
+private fun EditVehicleDialog(
+    vehicle: VehicleProfile,
+    onSave: (VehicleProfile) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var title by remember(vehicle) { mutableStateOf(vehicle.title) }
+    var nickname by remember(vehicle) { mutableStateOf(vehicle.nickname) }
+    var puc by remember(vehicle) { mutableStateOf(vehicle.puc) }
+    var insurance by remember(vehicle) { mutableStateOf(vehicle.insurance) }
+    var service by remember(vehicle) { mutableStateOf(vehicle.service) }
+    val valid = title.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit vehicle", color = TextHi) },
+        text = {
+            Column {
+                VehicleTextField(title, { title = it }, "Vehicle name")
+                VehicleTextField(nickname, { nickname = it }, "Nickname")
+                VehicleTextField(puc, { puc = it }, "PUC")
+                VehicleTextField(insurance, { insurance = it }, "Insurance")
+                VehicleTextField(service, { service = it }, "Service")
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = valid,
+                onClick = {
+                    onSave(
+                        VehicleProfile(
+                            title = title.trim(),
+                            nickname = nickname.trim(),
+                            puc = puc.trim().ifBlank { "Not set" },
+                            insurance = insurance.trim().ifBlank { "Not set" },
+                            service = service.trim().ifBlank { "Not set" },
+                        ),
+                    )
+                },
+            ) {
+                Text("Save", color = if (valid) Gold else TextLo)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = TextMid) }
+        },
+    )
 }
+
+@Composable
+private fun VehicleTextField(value: String, onChange: (String) -> Unit, label: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+    )
+}
+
+private fun String.isProblemValue(): Boolean =
+    equals("expired", ignoreCase = true) || equals("na", ignoreCase = true)

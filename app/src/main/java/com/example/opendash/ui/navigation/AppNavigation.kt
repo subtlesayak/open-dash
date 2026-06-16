@@ -53,7 +53,7 @@ private val bottomTabs = listOf(
     NavTab(Screen.Vehicles, OpenDashIcons.Motor, "Vehicles"),
     NavTab(Screen.Expenses, OpenDashIcons.Chart, "Expenses"),
     NavTab(Screen.Garage, OpenDashIcons.Wrench,  "Garage"),
-    NavTab(Screen.Settings, OpenDashIcons.Gear, "Settings"),
+    NavTab(Screen.Settings, OpenDashIcons.Gear, "More"),
 )
 
 private val bottomRoutes = bottomTabs.map { it.screen.route }

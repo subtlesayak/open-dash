@@ -51,7 +51,6 @@ import com.example.opendash.ui.components.BtnVariant
 import com.example.opendash.ui.components.OpenDashBtn
 import com.example.opendash.ui.components.OpenDashCard
 import com.example.opendash.ui.components.OpenDashDivider
-import com.example.opendash.ui.components.OpenDashIconBtn
 import com.example.opendash.ui.components.ScreenHeader
 import com.example.opendash.ui.theme.GeistFamily
 import com.example.opendash.ui.theme.GeistMonoFamily
@@ -87,12 +86,7 @@ fun ExpensesScreen(vm: GarageViewModel = viewModel()) {
                 .padding(18.dp)
                 .padding(bottom = 96.dp),
         ) {
-            ScreenHeader(
-                title = "My Expenses",
-                trailing = {
-                    OpenDashIconBtn(OpenDashIcons.Plus, onClick = { showAdd = true })
-                },
-            )
+            ScreenHeader(title = "My Expenses")
 
             OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -203,14 +197,20 @@ private fun AddExpenseScreenDialog(onAdd: (String, Double, String) -> Unit, onDi
         title = { Text("Add expense", color = TextHi) },
         text = {
             Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    categories.take(4).forEach { option ->
-                        OpenDashBtn(option.take(4), onClick = { category = option }, variant = if (category == option) BtnVariant.Primary else BtnVariant.Secondary, size = BtnSize.Sm, modifier = Modifier.weight(1f))
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                    categories.drop(4).forEach { option ->
-                        OpenDashBtn(option.take(4), onClick = { category = option }, variant = if (category == option) BtnVariant.Primary else BtnVariant.Secondary, size = BtnSize.Sm, modifier = Modifier.weight(1f))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    categories.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            row.forEach { option ->
+                                OpenDashBtn(
+                                    option,
+                                    onClick = { category = option },
+                                    variant = if (category == option) BtnVariant.Primary else BtnVariant.Secondary,
+                                    size = BtnSize.Sm,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
                 OutlinedTextField(amount, { amount = it }, label = { Text("Amount (₹)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth().padding(top = 10.dp))

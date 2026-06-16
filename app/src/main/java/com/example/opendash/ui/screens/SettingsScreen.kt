@@ -115,6 +115,7 @@ fun SettingsScreen(
         com.example.opendash.dash.nav.VoiceMode.CHIME -> "Chime"
         com.example.opendash.dash.nav.VoiceMode.FULL  -> "Full TTS"
     }
+    var updateMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -123,9 +124,39 @@ fun SettingsScreen(
             .padding(18.dp)
             .padding(bottom = 24.dp),
     ) {
-        ScreenHeader(title = "Settings", onBack = onBack)
+        ScreenHeader(title = "More")
+
+        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+            MoreRow(OpenDashIcons.Gear, "Settings", "Connection, wallpaper, voice, units")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Dash, "About", "OpenDash v1.2")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Bell, "Help", "Connection and dash wallpaper guidance")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Lock, "Terms & Conditions", "Usage terms")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Flag, "License", "Open source notices")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Cal, "Changelog", "Version history")
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(
+                OpenDashIcons.Sync,
+                "Check for updates",
+                updateMessage ?: "Installed version 1.2",
+                last = true,
+                control = {
+                    OpenDashBtn(
+                        "Check",
+                        onClick = { updateMessage = "OpenDash 1.2 is installed. Check GitHub Releases for newer builds." },
+                        variant = BtnVariant.Ghost,
+                        size = BtnSize.Sm,
+                    )
+                },
+            )
+        }
 
         // Account card
+        SectionLabel("Account")
         OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp, onClick = {}) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -383,11 +414,24 @@ fun SettingsScreen(
         }
 
         Text(
-            "OpenDash v1.1 · ${if (!auth.syncAvailable) "local only" else if (auth.isSignedIn) "sync on" else "sync off"}",
+            "OpenDash v1.2 · ${if (!auth.syncAvailable) "local only" else if (auth.isSignedIn) "sync on" else "sync off"}",
             color = TextDis, fontSize = 11.sp, fontFamily = GeistMonoFamily,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
         )
     }
+}
+
+@Composable
+private fun MoreRow(
+    icon: ImageVector,
+    title: String,
+    sub: String,
+    last: Boolean = false,
+    control: @Composable () -> Unit = {
+        Icon(OpenDashIcons.ChevronRight, null, tint = TextLo, modifier = Modifier.size(18.dp))
+    },
+) {
+    SettingRow(icon = icon, title = title, sub = sub, control = control, last = last)
 }
 
 @Composable

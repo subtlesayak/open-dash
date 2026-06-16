@@ -83,17 +83,37 @@ fun GarageScreen(
             .padding(bottom = 24.dp),
     ) {
         ScreenHeader(
-            eyebrow = "Himalayan 450 · ${"%,d".format(ui.odometerKm)} km",
             title = "Garage",
             trailing = {
                 OpenDashBtn("Odometer", onClick = { showOdo = true }, variant = BtnVariant.Ghost, size = BtnSize.Sm)
             },
         )
 
+        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 14.dp) {
+            Eyebrow("Active vehicle")
+            Text(
+                "Himalayan 450",
+                color = TextHi,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = GeistFamily,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(
+                "${"%,d".format(ui.odometerKm)} km on odometer",
+                color = TextMid,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+
+        GarageSectionHeader("Maintenance", "Service intervals and completed work")
         MaintenanceTab(ui, onMark = { item -> vm.markServiceDone(item, ui.odometerKm) }, onLog = { showLog = true }, onAdd = { showAddService = true })
         Spacer(Modifier.height(24.dp))
+        GarageSectionHeader("Fuel diary", "Efficiency, fill-ups, and 30-day fuel spend")
         FuelTab(ui, onAdd = { showFuel = true }, onDelete = { vm.deleteFuel(it) })
         Spacer(Modifier.height(24.dp))
+        GarageSectionHeader("Expenses", "Repairs, accessories, trips, food, stay, and transport")
         ExpensesSection(
             ui = ui,
             onAdd = { showExpense = true },
@@ -128,6 +148,14 @@ fun GarageScreen(
         onDismiss = { showLog = false },
     )
     if (showOdo) OdometerDialog(ui.odometerKm, onSet = { vm.setOdometer(it); showOdo = false }, onDismiss = { showOdo = false })
+}
+
+@Composable
+private fun GarageSectionHeader(title: String, subtitle: String) {
+    Column(Modifier.padding(top = 22.dp, bottom = 10.dp, start = 2.dp, end = 2.dp)) {
+        Text(title, color = TextHi, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+        Text(subtitle, color = TextLo, fontSize = 12.5.sp, modifier = Modifier.padding(top = 2.dp))
+    }
 }
 
 @Composable
@@ -276,7 +304,6 @@ private fun ExpensesSection(
     onExportCsv: () -> Unit,
     onExportDoc: () -> Unit,
 ) {
-    Eyebrow("Expenses", Modifier.padding(bottom = 8.dp, start = 4.dp))
     OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
