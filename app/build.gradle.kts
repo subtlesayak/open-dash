@@ -30,19 +30,44 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = providers.gradleProperty("OPENDASH_RELEASE_STORE_FILE").orNull
+            val storePasswordValue = providers.gradleProperty("OPENDASH_RELEASE_STORE_PASSWORD").orNull
+            val keyAliasValue = providers.gradleProperty("OPENDASH_RELEASE_KEY_ALIAS").orNull
+            val keyPasswordValue = providers.gradleProperty("OPENDASH_RELEASE_KEY_PASSWORD").orNull
+
+            if (
+                !storeFilePath.isNullOrBlank() &&
+                !storePasswordValue.isNullOrBlank() &&
+                !keyAliasValue.isNullOrBlank() &&
+                !keyPasswordValue.isNullOrBlank()
+            ) {
+                storeFile = file(storeFilePath)
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".mui3"
             resValue("string", "app_name", "OpenDash")
         }
         release {
-            optimization {
-                enable = false
-            }
-            // Hobby/open-source distribution: sign the release with the debug keystore so the
-            // published APK installs by tapping (sideload). Replace with your own release
-            // keystore if you ever ship a signed-by-you build (needed for consistent updates).
-            signingConfig = signingConfigs.getByName("debug")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
+            // Release builds must never use the debug signing config. Local developers and CI
+            // should provide their own release keystore through Gradle properties or CI secrets:
+            // OPENDASH_RELEASE_STORE_FILE, OPENDASH_RELEASE_STORE_PASSWORD,
+            // OPENDASH_RELEASE_KEY_ALIAS, and OPENDASH_RELEASE_KEY_PASSWORD.
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
