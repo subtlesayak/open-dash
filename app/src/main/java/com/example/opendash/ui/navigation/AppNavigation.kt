@@ -1,5 +1,8 @@
 package com.example.opendash.ui.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +37,8 @@ import com.example.opendash.viewmodel.RouteViewModel
 sealed class Screen(val route: String) {
     object Login    : Screen("login")
     object Home     : Screen("home")
+    object Vehicles : Screen("vehicles")
+    object Expenses : Screen("expenses")
     object Route    : Screen("route")
     object Dash     : Screen("dash")
     object Garage   : Screen("garage")
@@ -45,10 +50,10 @@ private data class NavTab(val screen: Screen, val icon: ImageVector, val label: 
 
 private val bottomTabs = listOf(
     NavTab(Screen.Home,   OpenDashIcons.Home,    "Home"),
-    NavTab(Screen.Route,  OpenDashIcons.Navi,    "Route"),
-    NavTab(Screen.Dash,   OpenDashIcons.Dash,    "Dash"),
+    NavTab(Screen.Vehicles, OpenDashIcons.Motor, "Vehicles"),
+    NavTab(Screen.Expenses, OpenDashIcons.Chart, "Expenses"),
     NavTab(Screen.Garage, OpenDashIcons.Wrench,  "Garage"),
-    NavTab(Screen.Rides,  OpenDashIcons.History, "Rides"),
+    NavTab(Screen.Settings, OpenDashIcons.Gear, "Settings"),
 )
 
 private val bottomRoutes = bottomTabs.map { it.screen.route }
@@ -64,10 +69,7 @@ fun AppNavigation(
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    val showBottomNav = currentRoute in listOf(
-        Screen.Home.route, Screen.Route.route, Screen.Dash.route,
-        Screen.Garage.route, Screen.Rides.route,
-    )
+    val showBottomNav = currentRoute in bottomRoutes
 
     val garageTab by appViewModel.garageTab.collectAsState()
     val routeState by routeViewModel.state.collectAsState()
@@ -124,6 +126,10 @@ fun AppNavigation(
             NavHost(
                 navController = navController,
                 startDestination = Screen.Login.route,
+                enterTransition = { slideInHorizontally(tween(260)) { it } },
+                exitTransition = { slideOutHorizontally(tween(260)) { -it } },
+                popEnterTransition = { slideInHorizontally(tween(260)) { -it } },
+                popExitTransition = { slideOutHorizontally(tween(260)) { it } },
             ) {
                 composable(Screen.Login.route) {
                     LoginScreen(
@@ -148,12 +154,21 @@ fun AppNavigation(
                             when (dest) {
                                 "route" -> navController.navigate(Screen.Route.route)
                                 "dash" -> navController.navigate(Screen.Dash.route)
+                                "rides" -> navController.navigate(Screen.Rides.route)
                                 "garage" -> navController.navigate(Screen.Garage.route)
                                 "settings" -> navController.navigate(Screen.Settings.route)
                             }
                         },
                         routeViewModel = routeViewModel,
                     )
+                }
+
+                composable(Screen.Vehicles.route) {
+                    VehiclesScreen()
+                }
+
+                composable(Screen.Expenses.route) {
+                    ExpensesScreen()
                 }
 
                 composable(Screen.Route.route) {
@@ -202,7 +217,7 @@ fun AppNavigation(
                                 popUpTo(0) { inclusive = true }
                             }
                         },
-                        onBack = { navController.popBackStack() },
+                        onBack = { navController.navigate(Screen.Home.route) { launchSingleTop = true } },
                     )
                 }
             }

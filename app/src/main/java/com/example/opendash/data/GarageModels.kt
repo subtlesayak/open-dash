@@ -11,6 +11,16 @@ data class FuelFillup(
     val sid: String = "",       // stable cross-device id (Firestore doc id)
 )
 
+/** A manually logged expense for the bike or ride. */
+data class Expense(
+    val id: Long = 0,
+    val dateMs: Long,
+    val category: String,
+    val amount: Double,
+    val note: String = "",
+    val sid: String = "",
+)
+
 /**
  * One recorded ride = one connect→disconnect session with the dash. Stats are computed
  * from the GPS track as it streams; [trackPolyline] is the encoded path (for the map

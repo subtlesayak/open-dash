@@ -24,8 +24,8 @@ android {
         applicationId = "com.opendash.app"
         minSdk = 24
         targetSdk = 36
-        versionCode = 11
-        versionName = "1.1"
+        versionCode = 12
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -33,7 +33,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".mui3"
-            resValue("string", "app_name", "OpenDash M3")
+            resValue("string", "app_name", "OpenDash")
         }
         release {
             optimization {

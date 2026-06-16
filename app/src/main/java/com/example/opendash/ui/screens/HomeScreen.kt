@@ -57,7 +57,6 @@ fun HomeScreen(
     ) {
         ScreenHeader(
             wordmark = true,
-            trailing = { OpenDashIconBtn(OpenDashIcons.Gear, onClick = { onNavigate("settings") }) },
         )
 
         // Connection hero card
@@ -111,22 +110,32 @@ fun HomeScreen(
 
         Spacer(Modifier.height(18.dp))
 
-        OpenDashBtn(
-            "Start navigation", onClick = { onNavigate("route") },
-            icon = OpenDashIcons.Navi, variant = BtnVariant.Primary, size = BtnSize.Lg,
-            modifier = Modifier.fillMaxWidth(),
-        )
-
-        Spacer(Modifier.height(10.dp))
-
-        OpenDashBtn(
-            if (conn == ConnectionState.Connected) "Open dash view" else "Connect to dash",
-            onClick = { onNavigate("dash") },
-            icon = if (conn == ConnectionState.Connected) OpenDashIcons.Dash else OpenDashIcons.Wifi,
-            variant = if (conn == ConnectionState.Connected) BtnVariant.Secondary else BtnVariant.Primary,
-            size = BtnSize.Md,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        Eyebrow("OpenDash", Modifier.padding(bottom = 8.dp, start = 4.dp))
+        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+            OpenDashRow(
+                "Start navigation",
+                icon = OpenDashIcons.Navi,
+                sub = "Pick a destination and send it to the dash",
+                trailingIcon = true,
+                onClick = { onNavigate("route") },
+            )
+            OpenDashDivider(Modifier.padding(horizontal = 4.dp))
+            OpenDashRow(
+                if (conn == ConnectionState.Connected) "Dash view" else "Connect to dash",
+                icon = if (conn == ConnectionState.Connected) OpenDashIcons.Dash else OpenDashIcons.Wifi,
+                sub = if (conn == ConnectionState.Connected) "Open the live projection controls" else "Pair, authenticate, and start streaming",
+                trailingIcon = true,
+                onClick = { onNavigate("dash") },
+            )
+            OpenDashDivider(Modifier.padding(horizontal = 4.dp))
+            OpenDashRow(
+                "Ride history",
+                icon = OpenDashIcons.History,
+                sub = "Review recorded rides and tracks",
+                trailingIcon = true,
+                onClick = { onNavigate("rides") },
+            )
+        }
 
         Spacer(Modifier.height(18.dp))
 

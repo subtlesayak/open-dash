@@ -16,7 +16,7 @@ import java.util.UUID
  * synchronous; callers run them off the main thread.
  */
 class OpenDashDb private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, "opendash.db", null, 4) {
+    SQLiteOpenHelper(context.applicationContext, "opendash.db", null, 5) {
 
     companion object {
         @Volatile private var instance: OpenDashDb? = null
@@ -42,6 +42,15 @@ class OpenDashDb private constructor(context: Context) :
                  start_lng REAL NOT NULL DEFAULT 0,
                  end_lat REAL NOT NULL DEFAULT 0,
                  end_lng REAL NOT NULL DEFAULT 0)"""
+
+        private const val CREATE_EXPENSE =
+            """CREATE TABLE IF NOT EXISTS expense(
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 sid TEXT NOT NULL DEFAULT '',
+                 date_ms INTEGER NOT NULL,
+                 category TEXT NOT NULL,
+                 amount REAL NOT NULL,
+                 note TEXT NOT NULL DEFAULT '')"""
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -78,6 +87,7 @@ class OpenDashDb private constructor(context: Context) :
                  created_ms INTEGER NOT NULL)"""
         )
         db.execSQL(CREATE_RIDE)
+        db.execSQL(CREATE_EXPENSE)
         seedMaintenance(db)
     }
 
@@ -100,6 +110,7 @@ class OpenDashDb private constructor(context: Context) :
             }
         }
         if (oldVersion < 4) db.execSQL(CREATE_RIDE)
+        if (oldVersion < 5) db.execSQL(CREATE_EXPENSE)
     }
 
     private fun seedMaintenance(db: SQLiteDatabase) {
@@ -165,6 +176,34 @@ class OpenDashDb private constructor(context: Context) :
 
     fun deleteFuelBySid(sid: String) =
         writableDatabase.delete("fuel_fillup", "sid=?", arrayOf(sid))
+
+    // ── Expenses ─────────────────────────────────────────────────────────
+    fun expenses(): List<Expense> {
+        val out = ArrayList<Expense>()
+        readableDatabase.rawQuery(
+            "SELECT id,sid,date_ms,category,amount,note FROM expense ORDER BY date_ms DESC", null,
+        ).use { c ->
+            while (c.moveToNext()) out.add(
+                Expense(
+                    id = c.getLong(0), sid = c.getString(1), dateMs = c.getLong(2),
+                    category = c.getString(3), amount = c.getDouble(4), note = c.getString(5) ?: "",
+                )
+            )
+        }
+        return out
+    }
+
+    fun upsertExpense(e: Expense) {
+        val cv = ContentValues().apply {
+            put("sid", e.sid); put("date_ms", e.dateMs); put("category", e.category)
+            put("amount", e.amount); put("note", e.note)
+        }
+        if (writableDatabase.update("expense", cv, "sid=?", arrayOf(e.sid)) == 0)
+            writableDatabase.insert("expense", null, cv)
+    }
+
+    fun deleteExpenseBySid(sid: String) =
+        writableDatabase.delete("expense", "sid=?", arrayOf(sid))
 
     // ── Maintenance ───────────────────────────────────────────────────────
     fun maintenanceItems(): List<MaintenanceItem> {

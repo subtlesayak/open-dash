@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.PowerManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.opendash.data.DashWallpaperFit
 import com.example.opendash.data.DashWallpaperKind
 import com.example.opendash.data.DashWallpaperInfo
 import com.example.opendash.data.DashWallpaperStore
@@ -61,6 +62,7 @@ data class DashUiState(
     val routePoints: List<GeoPoint> = emptyList(),
     val wallpaperPath: String? = null,
     val wallpaperKind: DashWallpaperKind? = null,
+    val wallpaperFit: DashWallpaperFit = DashWallpaperFit.CROP,
     val wallpaperCropX: Float = 0f,
     val wallpaperCropY: Float = 0f,
     val wallpaperGalleryCount: Int = 0,
@@ -332,11 +334,16 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     /** Forget the paired dash so the next connect rediscovers any RE_* dash by prefix. */
     fun forgetDash() { dashConfig.forgetDash(); _ui.value = _ui.value.copy(ssid = "") }
 
-    fun setWallpaperFromUri(uri: Uri, horizontalBias: Float = 0f, verticalBias: Float = 0f) {
+    fun setWallpaperFromUri(
+        uri: Uri,
+        horizontalBias: Float = 0f,
+        verticalBias: Float = 0f,
+        fit: DashWallpaperFit = DashWallpaperFit.CROP,
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
             _ui.update { it.copy(wallpaperSaving = true, wallpaperError = null) }
             runCatching {
-                wallpaperStore.saveFromUri(uri, horizontalBias, verticalBias)
+                wallpaperStore.saveFromUri(uri, horizontalBias, verticalBias, fit)
                 wallpaperStore.currentInfo()
             }.onSuccess { info ->
                     lastSignature = ""
@@ -406,6 +413,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             it.copy(
                 wallpaperPath = info?.path,
                 wallpaperKind = info?.kind,
+                wallpaperFit = info?.fit ?: DashWallpaperFit.CROP,
                 wallpaperCropX = info?.horizontalBias ?: 0f,
                 wallpaperCropY = info?.verticalBias ?: 0f,
                 wallpaperGalleryCount = gallery.size,
@@ -780,6 +788,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value.wallpaperKind,
                 _ui.value.wallpaperCropX,
                 _ui.value.wallpaperCropY,
+                _ui.value.wallpaperFit,
             )
             return
         }

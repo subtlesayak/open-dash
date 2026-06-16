@@ -1,5 +1,6 @@
 package com.example.opendash.ui.screens
 
+import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,11 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.opendash.data.Expense
 import com.example.opendash.data.FuelFillup
 import com.example.opendash.data.MaintenanceItem
 import com.example.opendash.ui.OpenDashIcons
@@ -33,9 +37,11 @@ import com.example.opendash.ui.theme.*
 import com.example.opendash.viewmodel.GarageUi
 import com.example.opendash.viewmodel.GarageViewModel
 import com.example.opendash.viewmodel.MaintRow
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private val dfRow = SimpleDateFormat("MMM d", Locale.getDefault())
 private val dfBar = SimpleDateFormat("d/M", Locale.getDefault())
@@ -61,10 +67,13 @@ fun GarageScreen(
     vm: GarageViewModel = viewModel(),
 ) {
     val ui by vm.ui.collectAsState()
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showFuel by remember { mutableStateOf(false) }
     var showAddService by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var showOdo by remember { mutableStateOf(false) }
+    var showExpense by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -81,23 +90,31 @@ fun GarageScreen(
             },
         )
 
-        OpenDashSegmented(
-            options = listOf("Maintenance", "Fuel diary"),
-            selected = tab,
-            onSelect = onTabChange,
-            modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp),
+        MaintenanceTab(ui, onMark = { item -> vm.markServiceDone(item, ui.odometerKm) }, onLog = { showLog = true }, onAdd = { showAddService = true })
+        Spacer(Modifier.height(24.dp))
+        FuelTab(ui, onAdd = { showFuel = true }, onDelete = { vm.deleteFuel(it) })
+        Spacer(Modifier.height(24.dp))
+        ExpensesSection(
+            ui = ui,
+            onAdd = { showExpense = true },
+            onDelete = { vm.deleteExpense(it) },
+            onExportCsv = {
+                scope.launch { shareFile(ctx, vm.exportExpensesCsv(), "text/csv") }
+            },
+            onExportDoc = {
+                scope.launch { shareFile(ctx, vm.exportExpensesDoc(), "application/msword") }
+            },
         )
-
-        if (tab == "Maintenance")
-            MaintenanceTab(ui, onMark = { item -> vm.markServiceDone(item, ui.odometerKm) }, onLog = { showLog = true }, onAdd = { showAddService = true })
-        else
-            FuelTab(ui, onAdd = { showFuel = true }, onDelete = { vm.deleteFuel(it) })
     }
 
     if (showFuel) AddFuelDialog(
         defaultOdo = ui.odometerKm,
         onAdd = { l, c, o, loc -> vm.addFuel(l, c, o, loc); showFuel = false },
         onDismiss = { showFuel = false },
+    )
+    if (showExpense) AddExpenseDialog(
+        onAdd = { category, amount, note -> vm.addExpense(category, amount, note); showExpense = false },
+        onDismiss = { showExpense = false },
     )
     if (showAddService) AddServiceDialog(
         onAdd = { n, ic, iv -> vm.addService(n, ic, iv); showAddService = false },
@@ -251,7 +268,128 @@ private fun FuelTab(ui: GarageUi, onAdd: () -> Unit, onDelete: (FuelFillup) -> U
     OpenDashBtn("Add fill-up", onClick = onAdd, icon = OpenDashIcons.Plus, variant = BtnVariant.Ghost, size = BtnSize.Md, modifier = Modifier.fillMaxWidth())
 }
 
+@Composable
+private fun ExpensesSection(
+    ui: GarageUi,
+    onAdd: () -> Unit,
+    onDelete: (Expense) -> Unit,
+    onExportCsv: () -> Unit,
+    onExportDoc: () -> Unit,
+) {
+    Eyebrow("Expenses", Modifier.padding(bottom = 8.dp, start = 4.dp))
+    OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Eyebrow("Total logged")
+                Text(
+                    "₹${"%,.0f".format(ui.expensesTotal)}",
+                    color = Gold,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = GeistMonoFamily,
+                )
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Eyebrow("30 days")
+                Text(
+                    "₹${"%,.0f".format(ui.expenses30)}",
+                    color = TextHi,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = GeistMonoFamily,
+                )
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        if (ui.expenses.isEmpty()) {
+            Text("No expenses yet — log repairs, gear, food, stay, or transport.", color = TextLo, fontSize = 13.sp)
+        } else {
+            ui.expenses.take(5).forEachIndexed { i, expense ->
+                if (i > 0) OpenDashDivider(Modifier.padding(vertical = 8.dp))
+                ExpenseRow(expense, onDelete)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OpenDashBtn("Add expense", onClick = onAdd, icon = OpenDashIcons.Plus, variant = BtnVariant.Primary, size = BtnSize.Sm, modifier = Modifier.weight(1f))
+            OpenDashBtn("Excel", onClick = onExportCsv, icon = OpenDashIcons.Chart, variant = BtnVariant.Ghost, size = BtnSize.Sm, modifier = Modifier.weight(1f), enabled = ui.expenses.isNotEmpty())
+            OpenDashBtn("Doc", onClick = onExportDoc, icon = OpenDashIcons.Share, variant = BtnVariant.Ghost, size = BtnSize.Sm, modifier = Modifier.weight(1f), enabled = ui.expenses.isNotEmpty())
+        }
+    }
+}
+
+@Composable
+private fun ExpenseRow(expense: Expense, onDelete: (Expense) -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().clickable { onDelete(expense) },
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(Surf2).border(1.dp, Line, RoundedCornerShape(11.dp))) {
+            Icon(iconForExpense(expense.category), null, tint = Gold, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(expense.category, color = TextHi, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+            Text("${dfRow.format(Date(expense.dateMs))}${if (expense.note.isNotBlank()) " · ${expense.note}" else ""}", color = TextLo, fontSize = 12.sp, maxLines = 1)
+        }
+        Text("₹${"%,.0f".format(expense.amount)}", color = TextHi, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
+    }
+}
+
+private fun iconForExpense(category: String): ImageVector = when (category) {
+    "Fuel" -> OpenDashIcons.Fuel
+    "Repairs" -> OpenDashIcons.Wrench
+    "Accessories", "Riding Gear" -> OpenDashIcons.Motor
+    "Food" -> OpenDashIcons.Flag
+    "Stay" -> OpenDashIcons.Home
+    "Transport" -> OpenDashIcons.Route
+    else -> OpenDashIcons.Chart
+}
+
 // ── Dialogs ──────────────────────────────────────────────────────────────
+
+@Composable
+private fun AddExpenseDialog(onAdd: (String, Double, String) -> Unit, onDismiss: () -> Unit) {
+    val categories = listOf("Fuel", "Repairs", "Accessories", "Riding Gear", "Food", "Stay", "Transport", "Others")
+    var category by remember { mutableStateOf(categories.first()) }
+    var amount by remember { mutableStateOf("") }
+    var note by remember { mutableStateOf("") }
+    val valid = amount.toDoubleOrNull()?.let { it > 0.0 } == true
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onAdd(category, amount.toDouble(), note.trim()) }) {
+                Text("Add", color = if (valid) Gold else TextLo)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel", color = TextMid) } },
+        title = { Text("Add expense", color = TextHi) },
+        text = {
+            Column {
+                Eyebrow("Category")
+                Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    categories.chunked(2).forEach { row ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            row.forEach { option ->
+                                OpenDashBtn(
+                                    option,
+                                    onClick = { category = option },
+                                    variant = if (category == option) BtnVariant.Primary else BtnVariant.Secondary,
+                                    size = BtnSize.Sm,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+                NumField(amount, { amount = it }, "Amount (₹)", true)
+                OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
+        },
+        containerColor = Surf1,
+    )
+}
 
 @Composable
 private fun AddFuelDialog(defaultOdo: Int, onAdd: (Double, Double, Int, String) -> Unit, onDismiss: () -> Unit) {
@@ -363,4 +501,14 @@ private fun NumField(value: String, onChange: (String) -> Unit, label: String, d
         keyboardOptions = KeyboardOptions(keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number),
         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
     )
+}
+
+private fun shareFile(context: android.content.Context, file: File, mimeType: String) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(send, "Export expenses"))
 }

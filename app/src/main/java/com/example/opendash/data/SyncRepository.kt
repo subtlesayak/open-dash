@@ -57,6 +57,7 @@ class SyncRepository private constructor(context: Context) {
     // ── Reads (local) ────────────────────────────────────────────────────
     fun odometer() = db.odometer()
     fun fuelFills() = db.fuelFills()
+    fun expenses() = db.expenses()
     fun maintenanceItems() = db.maintenanceItems()
     fun savedLocations() = db.savedLocations()
     fun rides() = db.rides()
@@ -73,6 +74,18 @@ class SyncRepository private constructor(context: Context) {
         bump()
     }
     fun deleteFuel(f: FuelFillup) { db.deleteFuelBySid(f.sid); userDoc()?.collection("fuel")?.document(f.sid)?.delete(); bump() }
+
+    fun addExpense(category: String, amount: Double, note: String) {
+        val e = Expense(
+            sid = OpenDashDb.newSid(),
+            dateMs = System.currentTimeMillis(),
+            category = category,
+            amount = amount,
+            note = note,
+        )
+        db.upsertExpense(e); pushExpense(e); bump()
+    }
+    fun deleteExpense(e: Expense) { db.deleteExpenseBySid(e.sid); userDoc()?.collection("expenses")?.document(e.sid)?.delete(); bump() }
 
     fun addMaintenance(name: String, icon: String, intervalKm: Int, lastDoneOdoKm: Int) {
         val m = MaintenanceItem(sid = OpenDashDb.newSid(), name = name, iconKey = icon,
@@ -109,6 +122,10 @@ class SyncRepository private constructor(context: Context) {
             mapOf("name" to m.name, "iconKey" to m.iconKey, "intervalKm" to m.intervalKm,
                 "lastDoneOdoKm" to m.lastDoneOdoKm, "lastDoneDateMs" to m.lastDoneDateMs))
     }
+    private fun pushExpense(e: Expense) {
+        userDoc()?.collection("expenses")?.document(e.sid)?.set(
+            mapOf("dateMs" to e.dateMs, "category" to e.category, "amount" to e.amount, "note" to e.note))
+    }
     private fun pushSaved(s: SavedLocation) {
         userDoc()?.collection("saved")?.document(s.sid)?.set(
             mapOf("name" to s.name, "lat" to s.lat, "lng" to s.lng, "note" to s.note, "createdMs" to s.createdMs))
@@ -142,6 +159,15 @@ class SyncRepository private constructor(context: Context) {
                 intervalKm = (doc.getLong("intervalKm") ?: 0L).toInt(), lastDoneOdoKm = (doc.getLong("lastDoneOdoKm") ?: 0L).toInt(),
                 lastDoneDateMs = doc.getLong("lastDoneDateMs") ?: 0L)) },
             remove = { db.deleteMaintenanceBySid(it) })
+
+        listen(u.collection("expenses"),
+            uploadLocal = { db.expenses().forEach { pushExpense(it) } },
+            apply = { doc -> db.upsertExpense(Expense(
+                sid = doc.id, dateMs = doc.getLong("dateMs") ?: 0L,
+                category = doc.getString("category") ?: "Others",
+                amount = doc.getDouble("amount") ?: 0.0,
+                note = doc.getString("note") ?: "")) },
+            remove = { db.deleteExpenseBySid(it) })
 
         listen(u.collection("saved"),
             uploadLocal = { db.savedLocations().forEach { pushSaved(it) } },

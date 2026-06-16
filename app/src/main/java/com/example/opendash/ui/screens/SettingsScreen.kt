@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.IntSize
 import com.example.opendash.ui.OpenDashIcons
 import com.example.opendash.ui.components.*
 import com.example.opendash.ui.theme.*
+import com.example.opendash.data.DashWallpaperFit
 import com.example.opendash.data.DashWallpaperKind
 import com.example.opendash.data.DashWallpaperPaths
 import com.example.opendash.viewmodel.AuthViewModel
@@ -76,6 +77,7 @@ fun SettingsScreen(
     var pendingWallpaperPreview by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var cropX by remember { mutableFloatStateOf(0f) }
     var cropY by remember { mutableFloatStateOf(0f) }
+    var fitMode by remember { mutableStateOf(DashWallpaperFit.CROP) }
     val wallpaperPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -83,6 +85,7 @@ fun SettingsScreen(
             pendingWallpaperUri = uri
             cropX = 0f
             cropY = 0f
+            fitMode = DashWallpaperFit.CROP
             pendingWallpaperPreview = wallpaperPreviewFromUri(ctx, uri)
         }
     }
@@ -215,9 +218,17 @@ fun SettingsScreen(
                     image = pendingWallpaperPreview!!,
                     horizontalBias = cropX,
                     verticalBias = cropY,
+                    fit = fitMode,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
+                OpenDashSegmented(
+                    options = listOf("Crop", "Fit height", "Fit width"),
+                    selected = fitMode.label(),
+                    onSelect = { fitMode = it.toWallpaperFit() },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
                 Eyebrow("Horizontal position")
                 Slider(value = cropX, onValueChange = { cropX = it }, valueRange = -1f..1f)
                 Eyebrow("Vertical position")
@@ -228,6 +239,7 @@ fun SettingsScreen(
                     image = wallpaperPreview,
                     horizontalBias = dashUi.wallpaperCropX,
                     verticalBias = dashUi.wallpaperCropY,
+                    fit = dashUi.wallpaperFit,
                     modifier = Modifier
                         .fillMaxWidth()
                         .pointerInput(dashUi.wallpaperGalleryCount) {
@@ -251,7 +263,7 @@ fun SettingsScreen(
                     OpenDashBtn(
                         "Save crop",
                         onClick = {
-                            dashViewModel.setWallpaperFromUri(pendingWallpaperUri!!, cropX, cropY)
+                            dashViewModel.setWallpaperFromUri(pendingWallpaperUri!!, cropX, cropY, fitMode)
                             pendingWallpaperUri = null
                             pendingWallpaperPreview = null
                         },
@@ -467,6 +479,7 @@ private fun DashCropPreview(
     image: androidx.compose.ui.graphics.ImageBitmap,
     horizontalBias: Float,
     verticalBias: Float,
+    fit: DashWallpaperFit,
     modifier: Modifier = Modifier,
     showGuide: Boolean = true,
 ) {
@@ -476,30 +489,61 @@ private fun DashCropPreview(
             .clip(RoundedCornerShape(8.dp))
             .background(Bg0),
     ) {
-        val srcRatio = image.width.toFloat() / image.height.toFloat()
-        val dstRatio = size.width / size.height
-        val (srcOffset, srcSize) = if (srcRatio > dstRatio) {
-            val cropW = (image.height * dstRatio).toInt().coerceAtLeast(1)
-            val extra = (image.width - cropW).coerceAtLeast(0)
-            val left = ((extra / 2f) + (extra / 2f) * horizontalBias.coerceIn(-1f, 1f)).toInt()
-            IntOffset(left, 0) to IntSize(cropW, image.height)
+        if (fit == DashWallpaperFit.CROP) {
+            val srcRatio = image.width.toFloat() / image.height.toFloat()
+            val dstRatio = size.width / size.height
+            val (srcOffset, srcSize) = if (srcRatio > dstRatio) {
+                val cropW = (image.height * dstRatio).toInt().coerceAtLeast(1)
+                val extra = (image.width - cropW).coerceAtLeast(0)
+                val left = ((extra / 2f) + (extra / 2f) * horizontalBias.coerceIn(-1f, 1f)).toInt()
+                IntOffset(left, 0) to IntSize(cropW, image.height)
+            } else {
+                val cropH = (image.width / dstRatio).toInt().coerceAtLeast(1)
+                val extra = (image.height - cropH).coerceAtLeast(0)
+                val top = ((extra / 2f) + (extra / 2f) * verticalBias.coerceIn(-1f, 1f)).toInt()
+                IntOffset(0, top) to IntSize(image.width, cropH)
+            }
+            drawImage(
+                image = image,
+                srcOffset = srcOffset,
+                srcSize = srcSize,
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+            )
         } else {
-            val cropH = (image.width / dstRatio).toInt().coerceAtLeast(1)
-            val extra = (image.height - cropH).coerceAtLeast(0)
-            val top = ((extra / 2f) + (extra / 2f) * verticalBias.coerceIn(-1f, 1f)).toInt()
-            IntOffset(0, top) to IntSize(image.width, cropH)
+            val scale = if (fit == DashWallpaperFit.FIT_HEIGHT) {
+                size.height / image.height.toFloat()
+            } else {
+                size.width / image.width.toFloat()
+            }
+            val drawW = (image.width * scale).toInt().coerceAtLeast(1)
+            val drawH = (image.height * scale).toInt().coerceAtLeast(1)
+            val left = ((size.width.toInt() - drawW) / 2)
+            val top = ((size.height.toInt() - drawH) / 2)
+            drawImage(
+                image = image,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(image.width, image.height),
+                dstOffset = IntOffset(left, top),
+                dstSize = IntSize(drawW, drawH),
+            )
         }
-        drawImage(
-            image = image,
-            srcOffset = srcOffset,
-            srcSize = srcSize,
-            dstOffset = IntOffset.Zero,
-            dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-        )
         if (showGuide) {
             drawDashVisibilityGuide()
         }
     }
+}
+
+private fun DashWallpaperFit.label(): String = when (this) {
+    DashWallpaperFit.CROP -> "Crop"
+    DashWallpaperFit.FIT_HEIGHT -> "Fit height"
+    DashWallpaperFit.FIT_WIDTH -> "Fit width"
+}
+
+private fun String.toWallpaperFit(): DashWallpaperFit = when (this) {
+    "Fit height" -> DashWallpaperFit.FIT_HEIGHT
+    "Fit width" -> DashWallpaperFit.FIT_WIDTH
+    else -> DashWallpaperFit.CROP
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDashVisibilityGuide() {
