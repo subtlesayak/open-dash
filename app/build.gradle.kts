@@ -70,7 +70,7 @@ android {
         }
         create("googleNav") {
             dimension = "navProvider"
-            applicationIdSuffix = ".googlenav"
+            applicationId = "com.opendashgm"
             versionNameSuffix = "-google-nav"
             val mapsApiKey = localSecret("MAPS_API_KEY", "DEFAULT_API_KEY")
             buildConfigField("boolean", "GOOGLE_NAV_FLAVOR", "true")
