@@ -7,6 +7,7 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.opendash.BuildConfig
 import com.example.opendash.util.DebugLog
 
 /**
@@ -14,9 +15,9 @@ import com.example.opendash.util.DebugLog
  *
  * OpenDash is meant to work on ANY Royal Enfield Tripper dash, not just the author's.
  * Every dash advertises a different SSID (e.g. `RE_P0RP_260525`, `RE_XXXX_yymmdd`) but
- * they all share the `RE_` prefix and the factory passphrase `12345678`. So out of the
- * box we connect by PREFIX (see [DashWifiManager]) — the rider just picks their dash from
- * the system dialog once — and then we remember that exact SSID here for direct reconnects.
+ * they share the `RE_` prefix. So out of the box we connect by PREFIX (see
+ * [DashWifiManager]) — the rider just picks their dash from the system dialog once — and
+ * then we remember that exact SSID here for direct reconnects.
  *
  * Everything is overridable in Settings for dashes that don't fit the defaults.
  */
@@ -95,7 +96,7 @@ class DashConfig private constructor(context: Context) {
         private const val KEY_SSID     = "ssid"
         private const val KEY_PASSWORD = "password"
         const val DEFAULT_PREFIX   = "RE_"
-        const val DEFAULT_PASSWORD = "12345678"
+        val DEFAULT_PASSWORD: String get() = BuildConfig.DASH_DEFAULT_PASSWORD
 
         @Volatile private var instance: DashConfig? = null
         fun get(context: Context): DashConfig =

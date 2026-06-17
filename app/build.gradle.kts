@@ -12,6 +12,9 @@ if (project.file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
 
+fun String.asBuildConfigString(): String =
+    "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
 android {
     namespace = "com.example.opendash"
     compileSdk {
@@ -28,6 +31,24 @@ android {
         versionName = "1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField(
+            "String",
+            "DASH_DEFAULT_PASSWORD",
+            providers.gradleProperty("OPENDASH_DASH_DEFAULT_PASSWORD")
+                .orElse(providers.environmentVariable("OPENDASH_DASH_DEFAULT_PASSWORD"))
+                .orElse("")
+                .get()
+                .asBuildConfigString(),
+        )
+        buildConfigField(
+            "String",
+            "GOOGLE_WEB_CLIENT_ID",
+            providers.gradleProperty("OPENDASH_GOOGLE_WEB_CLIENT_ID")
+                .orElse(providers.environmentVariable("OPENDASH_GOOGLE_WEB_CLIENT_ID"))
+                .orElse("")
+                .get()
+                .asBuildConfigString(),
+        )
     }
 
     val releaseStoreFilePath = providers.gradleProperty("OPENDASH_RELEASE_STORE_FILE").orNull

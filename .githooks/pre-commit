@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+
+python scripts/secret_scan.py --staged --report build/security/pre-commit-secret-scan.md

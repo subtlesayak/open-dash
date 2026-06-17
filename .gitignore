@@ -14,6 +14,13 @@
 .cxx
 local.properties
 
+# Local environment and secrets. Commit .env.example only.
+.env
+.env.*
+!.env.example
+*.properties.local
+gradle.properties.local
+
 # Firebase is bring-your-own-project — each user drops in their own (the build runs
 # fully local without it). Never commit the author's config to a public repo.
 google-services.json
@@ -25,5 +32,15 @@ app/google-services.json
 *.aab
 *.jks
 *.keystore
+*.p12
+*.pem
+*.key
+*.cer
+*.crt
 *.log
+*.tmp
 captures/
+build/
+app/build/
+**/build/
+*.hprof
