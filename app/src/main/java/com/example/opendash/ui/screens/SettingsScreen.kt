@@ -9,16 +9,22 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -41,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import com.example.opendash.ui.OpenDashIcons
 import com.example.opendash.ui.components.*
 import com.example.opendash.ui.theme.*
@@ -73,6 +81,7 @@ fun SettingsScreen(
     var keepAwake   by remember { mutableStateOf(true) }
     var units       by remember { mutableStateOf("Kilometres") }
     val ctx = LocalContext.current
+    val selectedTheme by OpenDashThemeController.variant.collectAsState()
     var pendingWallpaperUri by remember { mutableStateOf<Uri?>(null) }
     var pendingWallpaperPreview by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var cropX by remember { mutableFloatStateOf(0f) }
@@ -120,13 +129,27 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .verticalScroll(rememberScrollState())
             .padding(18.dp)
             .padding(bottom = 24.dp),
     ) {
-        ScreenHeader(title = "More")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(bottom = 22.dp, top = 10.dp),
+        ) {
+            Text(
+                "Settings",
+                color = MaterialTheme.colorScheme.onBackground,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = GeistFamily,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(OpenDashIcons.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(26.dp))
+        }
 
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+        SettingsGroup(padding = 6.dp) {
             MoreRow(
                 OpenDashIcons.Sync,
                 "Update from GitHub",
@@ -135,87 +158,92 @@ fun SettingsScreen(
                 control = {
                     OpenDashBtn(
                         "Check",
-                        onClick = { updateMessage = "OpenDash 1.2 is installed. Check GitHub Releases for newer builds." },
-                        variant = BtnVariant.Ghost,
+                        onClick = { updateMessage = "OpenDash 1.3 is installed. Check GitHub Releases for newer builds." },
+                        variant = BtnVariant.Secondary,
                         size = BtnSize.Sm,
                     )
                 },
             )
         }
 
-        SectionLabel("More")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+        SectionLabel("General")
+        SettingsGroup(padding = 6.dp) {
             MoreRow(OpenDashIcons.Gear, "Settings", "Connection, ride, wallpaper, voice, units")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
-            MoreRow(OpenDashIcons.Dash, "About", "OpenDash v1.2")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
+            MoreRow(OpenDashIcons.Dash, "About", "OpenDash v1.3")
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             MoreRow(OpenDashIcons.Bell, "Help", "Connection and dash wallpaper guidance")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             MoreRow(OpenDashIcons.Lock, "Terms & Conditions", "Usage terms")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             MoreRow(OpenDashIcons.Flag, "License", "Open source notices")
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             MoreRow(OpenDashIcons.Cal, "Changelog", "Version history", last = true)
         }
 
         // Account card
         SectionLabel("Account")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp, onClick = {}) {
+        SettingsGroup(padding = 14.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                ) {
-                    Text(initials, color = MaterialTheme.colorScheme.primary, fontFamily = GeistMonoFamily, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                }
+                SettingsIconBubble(OpenDashIcons.Person)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     auth.displayName?.takeIf { it.isNotBlank() }?.let {
-                        Text(it, color = TextHi, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+                        Text(it, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
                     }
-                    Text(email, color = if (auth.displayName.isNullOrBlank()) TextHi else TextMid, fontSize = if (auth.displayName.isNullOrBlank()) 15.5.sp else 12.5.sp, fontWeight = if (auth.displayName.isNullOrBlank()) FontWeight.SemiBold else FontWeight.Normal, fontFamily = GeistFamily, modifier = Modifier.padding(top = 2.dp))
+                    Text(email, color = if (auth.displayName.isNullOrBlank()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontSize = if (auth.displayName.isNullOrBlank()) 15.5.sp else 12.5.sp, fontWeight = if (auth.displayName.isNullOrBlank()) FontWeight.SemiBold else FontWeight.Normal, fontFamily = GeistFamily, modifier = Modifier.padding(top = 2.dp))
                 }
+                Icon(OpenDashIcons.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
             }
         }
 
         SectionLabel("Connection")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+        SettingsGroup(padding = 6.dp) {
             SettingRow(OpenDashIcons.Bt, "Tripper Dash",
                 sub = when (conn) { ConnectionState.Connected -> "Connected"; ConnectionState.Searching -> "Connecting…"; ConnectionState.Offline -> "Not connected" },
                 control = { OpenDashChip(if (conn == ConnectionState.Connected) "Linked" else "Off", if (conn == ConnectionState.Connected) ChipTone.Gold else ChipTone.Off, dot = true) })
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             SettingRow(OpenDashIcons.Sync, "Auto-connect on start", "Link when the bike is near",
-                control = { OpenDashToggle(autoConnect) { autoConnect = it } })
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+                control = { SettingsToggle(autoConnect) { autoConnect = it } })
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             SettingRow(OpenDashIcons.Zap, "Stream quality", "Balanced · saves battery",
-                control = { Icon(OpenDashIcons.ChevronRight, null, tint = TextLo, modifier = Modifier.size(18.dp)) }, last = true)
+                control = { Icon(OpenDashIcons.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp)) }, last = true)
         }
 
         SectionLabel("During a ride")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+        SettingsGroup(padding = 6.dp) {
             SettingRow(OpenDashIcons.Power, "Turn phone screen off", "Map keeps streaming to the dash",
-                control = { OpenDashToggle(screenOff) { screenOff = it } })
-            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+                control = { SettingsToggle(screenOff) { screenOff = it } })
+            SettingsDivider(Modifier.padding(horizontal = 6.dp))
             SettingRow(OpenDashIcons.Dash, "Keep dash awake", "Prevent Tripper sleep",
-                control = { OpenDashToggle(keepAwake) { keepAwake = it } }, last = true)
+                control = { SettingsToggle(keepAwake) { keepAwake = it } }, last = true)
+        }
+
+        SectionLabel("Theming")
+        SettingsGroup(padding = 14.dp) {
+            SettingRow(
+                icon = OpenDashIcons.Palette,
+                title = "App-wide theme",
+                sub = selectedTheme.theme,
+                control = { OpenDashChip("Live", ChipTone.Gold) },
+                last = true,
+            )
+            Spacer(Modifier.height(10.dp))
+            OpenDashThemeVariants.forEach { variant ->
+                ThemePaletteRow(
+                    variant = variant,
+                    selected = selectedTheme.name == variant.name,
+                    onClick = {
+                        OpenDashThemeController.select(ctx, variant)
+                    },
+                )
+            }
         }
 
         SectionLabel("Dash Wallpaper")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 14.dp) {
+        SettingsGroup(padding = 14.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(44.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Icon(OpenDashIcons.Moon, contentDescription = null, modifier = Modifier.size(22.dp))
-                    }
-                }
+                SettingsIconBubble(OpenDashIcons.Moon)
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
@@ -225,14 +253,14 @@ fun SettingsScreen(
                             dashUi.wallpaperPath == null -> "Default idle screen"
                             else -> "Gallery ${dashUi.wallpaperGalleryIndex + 1} of ${dashUi.wallpaperGalleryCount}"
                         },
-                        color = TextHi,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = GeistFamily,
                     )
                     Text(
                         "Up to 5 images, GIFs, or videos. Use joystick left/right while idle.",
-                        color = TextLo,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 2.dp),
                     )
@@ -402,7 +430,7 @@ fun SettingsScreen(
         }
 
         SectionLabel("Voice & guidance")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 14.dp) {
+        SettingsGroup(padding = 14.dp) {
             OpenDashSegmented(listOf("Off", "Chime", "Full TTS"), voice, {
                 voiceManager.setMode(when (it) {
                     "Off"      -> com.example.opendash.dash.nav.VoiceMode.OFF
@@ -413,12 +441,12 @@ fun SettingsScreen(
         }
 
         SectionLabel("Units")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 14.dp) {
+        SettingsGroup(padding = 14.dp) {
             OpenDashSegmented(listOf("Kilometres", "Miles"), units, { units = it }, Modifier.fillMaxWidth())
         }
 
         SectionLabel("Sync")
-        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+        SettingsGroup(padding = 6.dp) {
             val (syncTitle, syncSub) = when {
                 !auth.syncAvailable -> "Local only" to "Add your own Firebase project to sync across devices"
                 auth.isSignedIn     -> "Synced" to (auth.email ?: "Signed in")
@@ -448,10 +476,103 @@ fun SettingsScreen(
         }
 
         Text(
-            "OpenDash v1.2 · ${if (!auth.syncAvailable) "local only" else if (auth.isSignedIn) "sync on" else "sync off"}",
-            color = TextDis, fontSize = 11.sp, fontFamily = GeistMonoFamily,
+            "OpenDash v1.3 · ${if (!auth.syncAvailable) "local only" else if (auth.isSignedIn) "sync on" else "sync off"}",
+            color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = GeistMonoFamily,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 10.dp),
         )
+    }
+}
+
+@Composable
+private fun SettingsGroup(
+    modifier: Modifier = Modifier,
+    padding: Dp = 0.dp,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = 0.dp,
+    ) {
+        Column(Modifier.padding(padding), content = content)
+    }
+}
+
+@Composable
+private fun SettingsIconBubble(icon: ImageVector, modifier: Modifier = Modifier) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(21.dp))
+    }
+}
+
+@Composable
+private fun SettingsDivider(modifier: Modifier = Modifier) {
+    Box(modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+}
+
+@Composable
+private fun SettingsToggle(on: Boolean, onChange: (Boolean) -> Unit) {
+    Switch(
+        checked = on,
+        onCheckedChange = onChange,
+        colors = SwitchDefaults.colors(
+            checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+            checkedTrackColor = MaterialTheme.colorScheme.primary,
+            checkedBorderColor = MaterialTheme.colorScheme.primary,
+            uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            uncheckedTrackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            uncheckedBorderColor = MaterialTheme.colorScheme.outline,
+        ),
+    )
+}
+
+@Composable
+private fun ThemePaletteRow(
+    variant: OpenDashThemeVariant,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else Color.Transparent)
+            .border(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(variant.name, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+            Text(variant.theme, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 8.dp)) {
+                variant.colors.forEach { color ->
+                    Box(
+                        Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .border(1.dp, Color.White.copy(alpha = 0.75f), CircleShape),
+                    )
+                }
+            }
+        }
+        if (selected) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(28.dp).clip(CircleShape).background(variant.accentStrong),
+            ) {
+                Icon(OpenDashIcons.Check, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(17.dp))
+            }
+        }
     }
 }
 
@@ -462,7 +583,7 @@ private fun MoreRow(
     sub: String,
     last: Boolean = false,
     control: @Composable () -> Unit = {
-        Icon(OpenDashIcons.ChevronRight, null, tint = TextLo, modifier = Modifier.size(18.dp))
+        Icon(OpenDashIcons.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
     },
 ) {
     SettingRow(icon = icon, title = title, sub = sub, control = control, last = last)
@@ -470,7 +591,14 @@ private fun MoreRow(
 
 @Composable
 private fun SectionLabel(label: String) {
-    Eyebrow(label, Modifier.padding(top = 22.dp, bottom = 9.dp, start = 4.dp))
+    Text(
+        label,
+        color = MaterialTheme.colorScheme.primary,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontFamily = GeistFamily,
+        modifier = Modifier.padding(top = 22.dp, bottom = 9.dp, start = 2.dp),
+    )
 }
 
 @Composable
@@ -483,26 +611,13 @@ private fun SettingRow(
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 13.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 13.dp),
     ) {
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.size(38.dp),
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
-            }
-        }
+        SettingsIconBubble(icon, modifier = Modifier.size(42.dp))
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = TextHi, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
-            if (sub != null) Text(sub, color = TextLo, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
+            Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+            if (sub != null) Text(sub, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         control()
     }

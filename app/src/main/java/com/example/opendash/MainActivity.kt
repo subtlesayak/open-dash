@@ -7,11 +7,11 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.opendash.data.SyncRepository
 import com.example.opendash.ui.navigation.AppNavigation
-import com.example.opendash.ui.theme.Bg1
 import com.example.opendash.ui.theme.OpenDashTheme
 import com.example.opendash.viewmodel.RouteViewModel
 import com.google.firebase.auth.FirebaseAuth
@@ -44,7 +44,7 @@ class MainActivity : ComponentActivity() {
         handleIntent(intent)
         setContent {
             OpenDashTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Bg1) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     AppNavigation(routeViewModel = routeViewModel)
                 }
             }

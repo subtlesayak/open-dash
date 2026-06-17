@@ -26,10 +26,13 @@ import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material.icons.outlined.MyLocation
 import androidx.compose.material.icons.outlined.Navigation
 import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Palette
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Route
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Speed
@@ -77,6 +80,9 @@ object OpenDashIcons {
     val Pin           = Icons.Outlined.Route
     val Share         = Icons.Outlined.Share
     val Power         = Icons.Outlined.PowerSettingsNew
+    val Person        = Icons.Outlined.Person
+    val Palette       = Icons.Outlined.Palette
+    val Search        = Icons.Outlined.Search
     val Lock          = Icons.Outlined.Lock
     val Mail          = Icons.Outlined.Email
     val Chart         = Icons.Outlined.BarChart
