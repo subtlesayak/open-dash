@@ -23,7 +23,11 @@ import com.example.opendash.dash.map.TileProvider
 import com.example.opendash.dash.nav.GeoPoint
 import com.example.opendash.dash.nav.NavEngine
 import com.example.opendash.dash.nav.Route
-import com.example.opendash.dash.nav.Router
+import com.example.opendash.dash.nav.provider.NavigationProviderId
+import com.example.opendash.dash.nav.provider.NavigationProviderSelector
+import com.example.opendash.dash.nav.provider.NavigationRouteRequest
+import com.example.opendash.dash.nav.provider.NavigationRouteResult
+import com.example.opendash.dash.nav.provider.OsrmRouteProvider
 import com.example.opendash.dash.protocol.DashCommands
 import com.example.opendash.dash.video.DashEncoder
 import com.example.opendash.dash.video.DashIdleRenderer
@@ -42,7 +46,7 @@ data class DashUiState(
     val frameCount: Int = 0,
     val lastButton: String? = null,
     val ssid: String = "",            // empty until a dash is discovered/paired (see DashConfig)
-    val wifiPassword: String = "12345678",  // RE Tripper factory passphrase; rider-overridable
+    val wifiPassword: String = "",  // rider-overridable; default comes from local/CI config
     val destinationName: String? = null,
     val errorMessage: String? = null,
     val mapZoom: Int = 19,
@@ -78,6 +82,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     val ui = _ui.asStateFlow()
 
     private val session     = DashSession(viewModelScope)
+    private val providerSelector = NavigationProviderSelector(app)
     private val wifiManager = DashWifiManager(app, viewModelScope)
     private val dashConfig  = com.example.opendash.dash.DashConfig.get(app)
     private val voice        = com.example.opendash.dash.nav.VoiceManager.get(app)
@@ -570,7 +575,11 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         viewModelScope.launch {
-            val r = Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(destLatV, destLngV))
+            val r = requestVisualRoute(
+                origin = GeoPoint(loc.latitude, loc.longitude),
+                destination = GeoPoint(destLatV, destLngV),
+                destinationName = _ui.value.destinationName.orEmpty(),
+            )
             if (r != null) {
                 route = r
                 tiles.prefetchRoute(r.geometry)
@@ -847,7 +856,11 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         rerouting = true
         DebugLog.i("DashViewModel") { "Off-route ${(now - offRouteSince) / 1000}s → rerouting" }
         viewModelScope.launch {
-            val r = Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng))
+            val r = requestVisualRoute(
+                origin = GeoPoint(loc.latitude, loc.longitude),
+                destination = GeoPoint(dLat, dLng),
+                destinationName = _ui.value.destinationName.orEmpty(),
+            )
             if (r != null) {
                 route = r
                 progressM = 0.0
@@ -859,6 +872,34 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 DebugLog.w("DashViewModel") { "Reroute failed (no internet?)" }
             }
             rerouting = false
+        }
+    }
+
+    private suspend fun requestVisualRoute(
+        origin: GeoPoint,
+        destination: GeoPoint,
+        destinationName: String,
+    ): Route? {
+        val request = NavigationRouteRequest(origin, destination, destinationName)
+        val provider = providerSelector.activeProvider()
+        val result = provider.startGuidance(request)
+        return when (result) {
+            is NavigationRouteResult.Success -> {
+                if (result.route != null && result.usesProviderGeometry) {
+                    result.route
+                } else {
+                    // Google Navigation SDK route content must not be drawn over MapLibre.
+                    // Keep the visual dash/phone route keyless via OSRM while Google guidance
+                    // can provide text/ETA events behind its own SDK surface when enabled.
+                    (OsrmRouteProvider.route(request) as? NavigationRouteResult.Success)?.route
+                }
+            }
+            is NavigationRouteResult.Failure -> {
+                if (result.providerId == NavigationProviderId.GOOGLE_NAVIGATION) {
+                    DebugLog.w("DashViewModel") { "Google navigation provider unavailable: ${result.reason}" }
+                }
+                (OsrmRouteProvider.route(request) as? NavigationRouteResult.Success)?.route
+            }
         }
     }
 

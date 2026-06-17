@@ -186,6 +186,14 @@ fun RouteScreen(
                     }
                 }
             }
+            Text(
+                routeState.providerMessage
+                    ?: "Provider: ${routeState.providerText}",
+                color = TextMid,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(top = 10.dp),
+            )
 
             Spacer(Modifier.height(20.dp))
 

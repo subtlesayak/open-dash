@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -14,6 +16,20 @@ if (project.file("google-services.json").exists()) {
 
 fun String.asBuildConfigString(): String =
     "\"${replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+fun loadProperties(vararg names: String): Properties =
+    Properties().also { props ->
+        names.map { rootProject.file(it) }
+            .filter { it.exists() }
+            .forEach { file -> file.inputStream().use(props::load) }
+    }
+
+val localSecrets = loadProperties("local.defaults.properties", "local.properties", "secrets.properties")
+fun localSecret(name: String, fallback: String = ""): String =
+    providers.gradleProperty(name)
+        .orElse(providers.environmentVariable(name))
+        .orElse(localSecrets.getProperty(name, fallback))
+        .get()
 
 android {
     namespace = "com.example.opendash"
@@ -34,21 +50,32 @@ android {
         buildConfigField(
             "String",
             "DASH_DEFAULT_PASSWORD",
-            providers.gradleProperty("OPENDASH_DASH_DEFAULT_PASSWORD")
-                .orElse(providers.environmentVariable("OPENDASH_DASH_DEFAULT_PASSWORD"))
-                .orElse("")
-                .get()
-                .asBuildConfigString(),
+            localSecret("OPENDASH_DASH_DEFAULT_PASSWORD").asBuildConfigString(),
         )
         buildConfigField(
             "String",
             "GOOGLE_WEB_CLIENT_ID",
-            providers.gradleProperty("OPENDASH_GOOGLE_WEB_CLIENT_ID")
-                .orElse(providers.environmentVariable("OPENDASH_GOOGLE_WEB_CLIENT_ID"))
-                .orElse("")
-                .get()
-                .asBuildConfigString(),
+            localSecret("OPENDASH_GOOGLE_WEB_CLIENT_ID").asBuildConfigString(),
         )
+        manifestPlaceholders["MAPS_API_KEY"] = localSecret("MAPS_API_KEY", "DEFAULT_API_KEY")
+    }
+
+    flavorDimensions += "navProvider"
+    productFlavors {
+        create("oss") {
+            dimension = "navProvider"
+            isDefault = true
+            buildConfigField("boolean", "GOOGLE_NAV_FLAVOR", "false")
+            buildConfigField("boolean", "MAPS_API_KEY_PRESENT", "false")
+        }
+        create("googleNav") {
+            dimension = "navProvider"
+            applicationIdSuffix = ".googlenav"
+            versionNameSuffix = "-google-nav"
+            val mapsApiKey = localSecret("MAPS_API_KEY", "DEFAULT_API_KEY")
+            buildConfigField("boolean", "GOOGLE_NAV_FLAVOR", "true")
+            buildConfigField("boolean", "MAPS_API_KEY_PRESENT", (mapsApiKey.isNotBlank() && mapsApiKey != "DEFAULT_API_KEY").toString())
+        }
     }
 
     val releaseStoreFilePath = providers.gradleProperty("OPENDASH_RELEASE_STORE_FILE").orNull
@@ -96,6 +123,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         buildConfig = true
@@ -127,6 +155,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.maplibre)
     implementation(libs.maplibre.annotation)
+    "googleNavImplementation"(libs.google.navigation) {
+        exclude(group = "org.chromium.net", module = "cronet-api")
+        exclude(group = "org.chromium.net", module = "cronet-common")
+        exclude(group = "org.chromium.net", module = "cronet-fallback")
+    }
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

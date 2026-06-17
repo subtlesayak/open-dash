@@ -20,6 +20,8 @@ local.properties
 !.env.example
 *.properties.local
 gradle.properties.local
+secrets.properties
+app/secrets.properties
 
 # Firebase is bring-your-own-project — each user drops in their own (the build runs
 # fully local without it). Never commit the author's config to a public repo.

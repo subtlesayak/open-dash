@@ -10,7 +10,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.opendash.data.SharedLocation
 import com.example.opendash.dash.nav.GeoPoint
 import com.example.opendash.dash.nav.Route
-import com.example.opendash.dash.nav.Router
+import com.example.opendash.dash.nav.provider.NavigationProviderId
+import com.example.opendash.dash.nav.provider.NavigationProviderSelector
+import com.example.opendash.dash.nav.provider.NavigationRouteRequest
+import com.example.opendash.dash.nav.provider.NavigationRouteResult
+import com.example.opendash.dash.nav.provider.OsrmRouteProvider
 import com.example.opendash.util.LocationParser
 import com.example.opendash.util.DebugLog
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +36,8 @@ data class RouteState(
     val distanceText: String? = null,   // "218 km"
     val durationText: String? = null,   // "4h 50m"
     val etaText: String? = null,        // "13:32"
+    val providerText: String = "OpenFreeMap / OSRM",
+    val providerMessage: String? = null,
 )
 
 class RouteViewModel(app: Application) : AndroidViewModel(app) {
@@ -41,6 +47,7 @@ class RouteViewModel(app: Application) : AndroidViewModel(app) {
 
     private val lm = app.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     private val repo = com.example.opendash.data.SyncRepository.get(app)
+    private val providerSelector = NavigationProviderSelector(app)
 
     private val _saved = MutableStateFlow<List<com.example.opendash.data.SavedLocation>>(emptyList())
     /** Saved destinations the rider can tap to load + navigate again. */
@@ -141,17 +148,46 @@ class RouteViewModel(app: Application) : AndroidViewModel(app) {
 
         _state.value = _state.value.copy(routing = true)
         viewModelScope.launch {
-            val r = Router.route(
-                GeoPoint(origin.latitude, origin.longitude),
-                GeoPoint(destLat, destLng),
+            val request = NavigationRouteRequest(
+                origin = GeoPoint(origin.latitude, origin.longitude),
+                destination = GeoPoint(destLat, destLng),
+                destinationName = _state.value.destination?.name.orEmpty(),
             )
+            val provider = providerSelector.activeProvider()
+            val result = provider.route(request)
+            val (r, providerText, providerMessage) = when (result) {
+                is NavigationRouteResult.Success -> {
+                    if (result.route != null && result.usesProviderGeometry) {
+                        Triple(result.route, provider.displayName, result.message)
+                    } else {
+                        val fallback = OsrmRouteProvider.route(request)
+                        val route = (fallback as? NavigationRouteResult.Success)?.route
+                        Triple(
+                            route,
+                            provider.displayName,
+                            result.message ?: "Using OSRM for MapLibre route geometry.",
+                        )
+                    }
+                }
+                is NavigationRouteResult.Failure -> {
+                    val fallback = OsrmRouteProvider.route(request)
+                    val route = (fallback as? NavigationRouteResult.Success)?.route
+                    Triple(
+                        route,
+                        if (result.providerId == NavigationProviderId.GOOGLE_NAVIGATION) "OpenFreeMap / OSRM" else provider.displayName,
+                        result.reason,
+                    )
+                }
+            }
             _state.value = if (r != null) _state.value.copy(
                 route = r,
                 routing = false,
                 distanceText = fmtKm(r.totalMeters),
                 durationText = fmtDuration(r.totalSeconds),
                 etaText = fmtEta(r.totalSeconds),
-            ) else _state.value.copy(routing = false)
+                providerText = providerText,
+                providerMessage = providerMessage,
+            ) else _state.value.copy(routing = false, providerText = providerText, providerMessage = providerMessage)
         }
     }
 

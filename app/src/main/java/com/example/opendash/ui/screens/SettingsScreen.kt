@@ -1,10 +1,12 @@
 package com.example.opendash.ui.screens
 
+import android.Manifest
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -41,6 +43,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.core.content.ContextCompat
+import com.example.opendash.BuildConfig
+import com.example.opendash.dash.nav.provider.NavigationProviderPrefs
 import com.example.opendash.ui.OpenDashIcons
 import com.example.opendash.ui.components.*
 import com.example.opendash.ui.theme.*
@@ -73,6 +78,26 @@ fun SettingsScreen(
     var keepAwake   by remember { mutableStateOf(true) }
     var units       by remember { mutableStateOf("Kilometres") }
     val ctx = LocalContext.current
+    val navProviderPrefs = remember { NavigationProviderPrefs(ctx) }
+    var experimentalGoogleNav by remember { mutableStateOf(navProviderPrefs.experimentalGoogleNavEnabled) }
+    var googleNavTermsAccepted by remember { mutableStateOf(navProviderPrefs.googleNavTermsAccepted) }
+    val googleNavBuildReady = BuildConfig.GOOGLE_NAV_FLAVOR && BuildConfig.MAPS_API_KEY_PRESENT
+    var googleNavWarning by remember {
+        mutableStateOf(
+            if (!BuildConfig.GOOGLE_NAV_FLAVOR) "Install the googleNav build to test Google Navigation SDK."
+            else if (!BuildConfig.MAPS_API_KEY_PRESENT) "MAPS_API_KEY is missing. Add it to secrets.properties or local.properties."
+            else null
+        )
+    }
+    val preciseLocationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            experimentalGoogleNav = false
+            navProviderPrefs.experimentalGoogleNavEnabled = false
+            googleNavWarning = "Precise location permission is required for Google Navigation guidance."
+        }
+    }
     var pendingWallpaperUri by remember { mutableStateOf<Uri?>(null) }
     var pendingWallpaperPreview by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var cropX by remember { mutableFloatStateOf(0f) }
@@ -201,6 +226,55 @@ fun SettingsScreen(
             OpenDashDivider(Modifier.padding(horizontal = 6.dp))
             SettingRow(OpenDashIcons.Dash, "Keep dash awake", "Prevent Tripper sleep",
                 control = { OpenDashToggle(keepAwake) { keepAwake = it } }, last = true)
+        }
+
+        SectionLabel("Experimental navigation")
+        OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 6.dp) {
+            SettingRow(
+                OpenDashIcons.Navi,
+                "Experimental Google Navigation",
+                "Requires googleNav build, billing-enabled key, precise location, and Google terms acceptance",
+                control = {
+                    OpenDashToggle(experimentalGoogleNav) { enabled ->
+                        if (enabled && !googleNavBuildReady) {
+                            googleNavWarning = if (!BuildConfig.GOOGLE_NAV_FLAVOR) {
+                                "Google Navigation SDK is not included in this OSS build."
+                            } else {
+                                "MAPS_API_KEY is missing or still DEFAULT_API_KEY."
+                            }
+                            experimentalGoogleNav = false
+                            navProviderPrefs.experimentalGoogleNavEnabled = false
+                        } else {
+                            experimentalGoogleNav = enabled
+                            navProviderPrefs.experimentalGoogleNavEnabled = enabled
+                            if (enabled && ContextCompat.checkSelfPermission(ctx, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                                preciseLocationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                            }
+                        }
+                    }
+                },
+            )
+            OpenDashDivider(Modifier.padding(horizontal = 6.dp))
+            SettingRow(
+                OpenDashIcons.Flag,
+                "Accept Navigation SDK terms",
+                "Required before Google guidance can start",
+                control = {
+                    OpenDashToggle(googleNavTermsAccepted) {
+                        googleNavTermsAccepted = it
+                        navProviderPrefs.googleNavTermsAccepted = it
+                    }
+                },
+                last = true,
+            )
+            Text(
+                googleNavWarning
+                    ?: "Google guidance events may be used for text/ETA only. Google route geometry is not drawn on MapLibre/OpenFreeMap.",
+                color = if (googleNavWarning == null) TextMid else Alert,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            )
         }
 
         SectionLabel("Dash Wallpaper")
