@@ -218,7 +218,14 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                             if (userWantsConnection &&
                                 wifiManager.state.value.status == WifiConnStatus.CONNECTED &&
                                 _ui.value.pendingPairingSsid == null
-                            ) session.connect(_ui.value.ssid, wifiManager.network)
+                            ) {
+                                val ssid = _ui.value.ssid
+                                if (ssid.isBlank() || ssid == dashConfig.ssidPrefix) {
+                                    DebugLog.w("DashViewModel") { "session.connect() suppressed — SSID '$ssid' not yet resolved, waiting for onSsidResolved" }
+                                } else {
+                                    session.connect(ssid, wifiManager.network)
+                                }
+                            }
                         }
                     }
                     WifiConnStatus.ERROR -> { _ui.value = _ui.value.copy(errorMessage = ws.error); refreshStage() }
@@ -319,8 +326,15 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         when {
-            wifiManager.state.value.status == WifiConnStatus.CONNECTED ->
-                session.connect(_ui.value.ssid, wifiManager.network)
+            wifiManager.state.value.status == WifiConnStatus.CONNECTED -> {
+                // FIX: guard against connecting with an unresolved prefix SSID
+                val ssid = _ui.value.ssid
+                if (ssid.isNotBlank() && ssid != dashConfig.ssidPrefix) {
+                    session.connect(ssid, wifiManager.network)
+                } else {
+                    DebugLog.w("DashViewModel") { "connect() deferred — SSID not yet resolved ('$ssid')" }
+                }
+            }
             // Known SSID (stored or just found by scan) → exact connect + correct auth.
             dashConfig.ssid.isNotBlank() ->
                 wifiManager.connect(dashConfig.ssid, dashConfig.password)
