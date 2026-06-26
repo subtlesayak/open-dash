@@ -2,6 +2,7 @@ package com.example.opendash.ui.components
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,6 +26,10 @@ fun OpenDashBarChart(
 ) {
     if (data.isEmpty()) return
     val maxVal = data.maxOf { it.value } * 1.12f
+    val primary = MaterialTheme.colorScheme.primary
+    val primaryDim = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+    val barRest = MaterialTheme.colorScheme.surfaceContainerHighest
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -45,7 +50,7 @@ fun OpenDashBarChart(
             ) {
                 Text(
                     text = entry.value.toString(),
-                    color = if (best) Gold else TextLo,
+                    color = if (best) primary else secondaryText,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = GeistMonoFamily,
@@ -60,17 +65,17 @@ fun OpenDashBarChart(
                         .drawBehind {
                             if (best) {
                                 drawRect(
-                                    brush = Brush.verticalGradient(listOf(Gold, GoldDeep)),
+                                    brush = Brush.verticalGradient(listOf(primary, primaryDim)),
                                 )
                             } else {
-                                drawRect(color = Surf3)
+                                drawRect(color = barRest)
                             }
                         },
                 )
 
                 Text(
                     text = entry.label,
-                    color = TextLo,
+                    color = secondaryText,
                     fontSize = 10.5.sp,
                     fontFamily = GeistMonoFamily,
                     modifier = Modifier.padding(top = 7.dp),

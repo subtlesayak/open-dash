@@ -12,7 +12,7 @@ import android.graphics.RectF
 import com.example.opendash.dash.nav.GeoPoint
 
 /**
- * Draws the navigation frame for the Tripper Dash (526 × 300).
+ * Draws the navigation frame for the bike dash (526 × 300).
  *
  * Layers: OSM tiles (already dark-filtered by TileProvider) → road route polyline
  * → destination pin → rider marker → top banner (name + remaining) → maneuver chip.

@@ -10,7 +10,7 @@ import android.view.Surface
 import com.example.opendash.util.DebugLog
 
 /**
- * MediaCodec H.264 encoder for the Tripper Dash stream:
+ * MediaCodec H.264 encoder for the bike dash stream:
  *   526 x 300, 2-4 fps, ~200 kbps, Baseline L4.1, 1-second IDR interval.
  *
  * [FPS] is the maximum encoder hint. The frame loop feeds 4 fps while moving and

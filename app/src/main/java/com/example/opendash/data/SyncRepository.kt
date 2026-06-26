@@ -103,6 +103,11 @@ class SyncRepository private constructor(context: Context) {
         )
         db.upsertExpense(e); pushExpense(e); bump()
     }
+    fun upsertExpense(e: Expense) {
+        db.upsertExpense(e)
+        pushExpense(e)
+        bump()
+    }
     fun deleteExpense(e: Expense) { db.deleteExpenseBySid(e.sid); userDoc()?.collection("expenses")?.document(e.sid)?.delete(); bump() }
 
     fun addMaintenance(

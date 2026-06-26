@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class DashState { IDLE, CONNECTING, AUTHENTICATING, READY, STREAMING, ERROR }
 
 /**
- * Tripper Dash session, sequenced to match better-dash (tripper_app_like_nav.py):
+ * Bike dash session, sequenced to match better-dash:
  *   1. Open sockets (RX :2002 bound first).
  *   2. Send initial burst on :2000 (includes q3c.e request-auth).
  *   3. RX loop ingests 07 00 / 07 03 → sends q3c.d → waits for 07 01 01.

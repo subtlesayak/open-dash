@@ -267,7 +267,7 @@ fun SettingsScreen(
 
         SectionLabel("Connection")
         SettingsGroup(padding = 6.dp) {
-            SettingRow(OpenDashIcons.Bt, "Tripper Dash",
+            SettingRow(OpenDashIcons.Bt, "Bike dash",
                 sub = when (conn) { ConnectionState.Connected -> "Connected"; ConnectionState.Searching -> "Connecting…"; ConnectionState.Offline -> "Not connected" },
                 control = { OpenDashChip(if (conn == ConnectionState.Connected) "Linked" else "Off", if (conn == ConnectionState.Connected) ChipTone.Gold else ChipTone.Off, dot = true) })
             SettingsDivider(Modifier.padding(horizontal = 6.dp))
@@ -283,7 +283,7 @@ fun SettingsScreen(
             SettingRow(OpenDashIcons.Power, "Turn phone screen off", "Map keeps streaming to the dash",
                 control = { SettingsToggle(screenOff) { screenOff = it } })
             SettingsDivider(Modifier.padding(horizontal = 6.dp))
-            SettingRow(OpenDashIcons.Dash, "Keep dash awake", "Prevent Tripper sleep",
+            SettingRow(OpenDashIcons.Dash, "Keep dash awake", "Prevent dash sleep",
                 control = { SettingsToggle(keepAwake) { keepAwake = it } }, last = true)
         }
 
@@ -785,17 +785,17 @@ private fun MoreRow(
 private fun MoreInformationPage(page: MorePage, onBack: () -> Unit) {
     val sections = when (page) {
         MorePage.ABOUT -> listOf(
-            "OpenDash v${BuildConfig.VERSION_NAME}" to "Open-source navigation, ride management, dash wallpapers, media cards, and call controls for compatible Tripper displays.",
+            "OpenDash v${BuildConfig.VERSION_NAME}" to "Open-source navigation, ride management, dash wallpapers, media cards, and call controls for compatible bike displays.",
             "Privacy" to "OpenDash works locally by default. Dash credentials use encrypted preferences and wallpaper media stays in app-private storage.",
         )
         MorePage.HELP -> listOf(
-            "Connect to Tripper Dash" to "Turn on the bike, choose Connect to dash, select the RE_* network, and confirm the exact SSID before it is saved.",
+            "Connect to dash" to "Turn on the bike, choose Connect to dash, select the RE_* network, and confirm the exact SSID before it is saved.",
             "Navigation" to "Share a destination from Google Maps, review the route, start navigation, and connect the dash. Active navigation keeps its existing projection behavior.",
             "Dash wallpaper" to "Add up to five images, GIFs, or MP4 videos. Video playback is capped at 8 fps. Crop with the display guide, then use joystick left/right while the dash is idle.",
             "Media and calls" to "Grant notification access for now-playing and caller cards. Grant call-control permission separately to answer with UP and reject or end with DOWN.",
         )
         MorePage.TERMS -> listOf(
-            "Independent project" to "OpenDash is independent and community-built. The Tripper protocol is unofficial and reverse-engineered.",
+            "Independent project" to "OpenDash is independent and community-built. The dash protocol is unofficial and reverse-engineered.",
             "Ride responsibly" to "Configure the app before riding. Do not interact with the phone in motion, and always follow local laws and road conditions.",
             "No warranty" to "The software is provided without warranty. Compatibility can vary by Android device, vehicle firmware, and connected applications.",
         )
@@ -933,11 +933,12 @@ private fun DashCropPreview(
     modifier: Modifier = Modifier,
     showGuide: Boolean = true,
 ) {
+    val guideColor = MaterialTheme.colorScheme.primary
     Canvas(
         modifier = modifier
             .aspectRatio(526f / 300f)
             .clip(RoundedCornerShape(20.dp))
-            .background(Bg0),
+            .background(MaterialTheme.colorScheme.surfaceContainerLowest),
     ) {
         if (fit == DashWallpaperFit.CROP) {
             val srcRatio = image.width.toFloat() / image.height.toFloat()
@@ -979,7 +980,7 @@ private fun DashCropPreview(
             )
         }
         if (showGuide) {
-            drawDashVisibilityGuide()
+            drawDashVisibilityGuide(guideColor)
         }
     }
 }
@@ -996,7 +997,7 @@ private fun String.toWallpaperFit(): DashWallpaperFit = when (this) {
     else -> DashWallpaperFit.CROP
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDashVisibilityGuide() {
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDashVisibilityGuide(color: Color) {
     val visibleRect = androidx.compose.ui.geometry.Rect(
         left = size.width * 0.02f,
         top = 0f,
@@ -1004,7 +1005,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDashVisibilityG
         bottom = size.height * 1.78f,
     )
     drawArc(
-        color = Gold.copy(alpha = 0.95f),
+        color = color.copy(alpha = 0.95f),
         startAngle = 180f,
         sweepAngle = 180f,
         useCenter = false,
@@ -1013,7 +1014,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDashVisibilityG
         style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round),
     )
     drawLine(
-        color = Gold.copy(alpha = 0.7f),
+        color = color.copy(alpha = 0.7f),
         start = Offset(size.width * 0.02f, size.height - 1f),
         end = Offset(size.width * 0.98f, size.height - 1f),
         strokeWidth = 2.dp.toPx(),

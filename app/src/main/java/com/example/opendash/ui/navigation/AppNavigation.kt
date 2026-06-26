@@ -70,6 +70,7 @@ fun AppNavigation(
     appViewModel: AppViewModel = viewModel(),
     dashViewModel: DashViewModel = viewModel(),
     routeViewModel: RouteViewModel = viewModel(),
+    connectDashRequest: Long = 0L,
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -80,6 +81,7 @@ fun AppNavigation(
 
     val garageTab by appViewModel.garageTab.collectAsState()
     val routeState by routeViewModel.state.collectAsState()
+    var handledConnectDashRequest by remember { mutableLongStateOf(0L) }
 
     // Single source of truth for connection status: the real dash stage. Fixes Home
     // claiming "Connected" while the Dash screen says it isn't.
@@ -103,6 +105,22 @@ fun AppNavigation(
                 navController.navigate(Screen.Route.route) { launchSingleTop = true }
             }
             routeViewModel.onNavigated()
+        }
+    }
+
+    LaunchedEffect(connectDashRequest, currentRoute) {
+        if (
+            connectDashRequest > 0L &&
+            connectDashRequest != handledConnectDashRequest &&
+            currentRoute != null &&
+            currentRoute != Screen.Login.route
+        ) {
+            handledConnectDashRequest = connectDashRequest
+            navController.navigate(Screen.Dash.route) {
+                popUpTo(Screen.Home.route) { saveState = true }
+                launchSingleTop = true
+                restoreState = true
+            }
         }
     }
 
@@ -234,7 +252,7 @@ fun AppNavigation(
                 }
 
                 composable(Screen.Dash.route) {
-                    DashScreen(vm = dashViewModel)
+                    DashScreen(vm = dashViewModel, connectRequest = connectDashRequest)
                 }
 
                 composable(Screen.Garage.route) {

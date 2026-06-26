@@ -11,7 +11,7 @@ import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * UDP sockets for the Tripper Dash, matching better-dash exactly:
+ * UDP sockets for the bike dash, matching better-dash exactly:
  *   TX  – bound to :2000, SO_BROADCAST, sends to 192.168.1.255:2000.
  *         The bike IP is never used for the control plane.
  *   RX  – bound to :2002. Must be open BEFORE the first TX packet, both to

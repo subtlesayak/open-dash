@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,7 +37,7 @@ import com.example.opendash.viewmodel.DashViewModel
 import kotlinx.coroutines.delay
 
 @Composable
-fun DashScreen(vm: DashViewModel = viewModel()) {
+fun DashScreen(vm: DashViewModel = viewModel(), connectRequest: Long = 0L) {
     val ui by vm.ui.collectAsState()
     val context = LocalContext.current
 
@@ -66,6 +67,13 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
     ) { results ->
         val essentialOk = essentialPermissions.all { results[it] == true }
         if (essentialOk) vm.connect()
+    }
+
+    LaunchedEffect(connectRequest) {
+        if (connectRequest > 0L && ui.stage != ConnStage.STREAMING) {
+            if (hasEssentialPermissions()) vm.connect()
+            else permissionLauncher.launch(requestedPermissions)
+        }
     }
 
     // Local preview state (mirrors what the dash shows)
@@ -152,20 +160,20 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                         Column(Modifier.weight(1f).padding(end = 12.dp)) {
                             Text(
                                 "Pair with this dash?",
-                                color = TextHi,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
                             Text(
                                 pendingSsid,
-                                color = Gold,
+                                color = MaterialTheme.colorScheme.primary,
                                 fontSize = 12.sp,
                                 fontFamily = GeistMonoFamily,
                                 modifier = Modifier.padding(top = 3.dp),
                             )
                             Text(
                                 "OpenDash will remember this exact SSID for future reconnects.",
-                                color = TextMid,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 11.5.sp,
                                 modifier = Modifier.padding(top = 4.dp),
                             )
@@ -197,13 +205,13 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                     Column(Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
                             when (ui.stage) {
-                                ConnStage.OFFLINE -> "Connect to Tripper Dash"
+                                ConnStage.OFFLINE -> "Connect to dash"
                                 ConnStage.WIFI    -> "Joining ${ui.ssid}…"
                                 ConnStage.AUTH    -> "Authenticating with dash…"
                                 ConnStage.ERROR   -> "Connection failed"
                                 ConnStage.STREAMING -> "Streaming"
                             },
-                            color = TextHi, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         )
                         Text(
                             when (ui.stage) {
@@ -213,7 +221,7 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                                 ConnStage.ERROR   -> ui.errorMessage ?: "See Logcat tag DashSession"
                                 ConnStage.STREAMING -> ""
                             },
-                            color = if (ui.stage == ConnStage.ERROR) Warn else TextMid,
+                            color = if (ui.stage == ConnStage.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 12.sp,
                             modifier = Modifier.padding(top = 3.dp),
                         )
@@ -242,13 +250,13 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "Frames encoded: ${ui.frameCount}",
-                        color = TextLo, fontSize = 11.sp, fontFamily = GeistMonoFamily,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = GeistMonoFamily,
                     )
                 }
                 ui.lastButton?.let { btn ->
                     Text(
                         "Joystick: $btn",
-                        color = Gold, fontSize = 11.sp, fontFamily = GeistMonoFamily,
+                        color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontFamily = GeistMonoFamily,
                         modifier = Modifier.padding(top = 4.dp),
                     )
                 }
@@ -265,16 +273,16 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                     Modifier
                         .size(300.dp)
                         .clip(RoundedCornerShape(percent = 50))
-                        .background(Brush.radialGradient(listOf(GoldGlow, Color.Transparent), radius = 200f))
+                        .background(Brush.radialGradient(listOf(MaterialTheme.colorScheme.primary.copy(alpha = 0.32f), Color.Transparent), radius = 200f))
                 )
             }
-            // Real Google Maps, clipped to the round Tripper shape.
+            // Real map preview, clipped to the round dash shape.
             Box(
                 modifier = Modifier
                     .size(272.dp)
                     .clip(CircleShape)
-                    .border(6.dp, Color(0xFF0D0F10), CircleShape)
-                    .border(2.dp, Line2, CircleShape),
+                    .border(6.dp, MaterialTheme.colorScheme.surfaceContainerLow, CircleShape)
+                    .border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
             ) {
                 OpenDashMap(
                     riderLat = ui.riderLat,
@@ -296,15 +304,15 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(13.dp))
-                    .background(if (ui.offRoute) Color(0x33D8853E) else GoldTint)
-                    .border(1.dp, if (ui.offRoute) Warn else GoldTint2, RoundedCornerShape(13.dp))
+                    .background(if (ui.offRoute) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer)
+                    .border(1.dp, if (ui.offRoute) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(13.dp))
                     .padding(horizontal = 14.dp, vertical = 11.dp),
             ) {
-                Icon(OpenDashIcons.Navi, null, tint = if (ui.offRoute) Warn else Gold, modifier = Modifier.size(20.dp))
+                Icon(OpenDashIcons.Navi, null, tint = if (ui.offRoute) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(11.dp))
                 Text(
                     if (ui.offRoute) "Off route — rerouting…" else mv,
-                    color = TextHi, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold,
                 )
             }
             Spacer(Modifier.height(10.dp))
@@ -325,15 +333,15 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(13.dp))
-                        .background(Surf1)
-                        .border(1.dp, Line, RoundedCornerShape(13.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(13.dp))
                         .padding(11.dp),
                 ) {
                     Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.Center) {
-                        Text(v, color = TextHi, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
+                        Text(v, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
                         if (u.isNotEmpty()) {
                             Spacer(Modifier.width(3.dp))
-                            Text(u, color = TextLo, fontSize = 10.5.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(bottom = 2.dp))
+                            Text(u, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.5.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(bottom = 2.dp))
                         }
                     }
                     Eyebrow(k, Modifier.padding(top = 3.dp))
@@ -350,16 +358,16 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(if (adjustMode) GoldTint else Surf1)
-                .border(1.dp, if (adjustMode) GoldTint2 else Line, RoundedCornerShape(20.dp))
+                .background(if (adjustMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(OpenDashIcons.Cross, null, tint = if (adjustMode) Gold else TextMid, modifier = Modifier.size(20.dp))
+                Icon(OpenDashIcons.Cross, null, tint = if (adjustMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(11.dp))
                 Column {
-                    Text("Map adjust mode", color = TextHi, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
-                    Text("Mirrors the bike joystick", color = TextLo, fontSize = 11.5.sp, modifier = Modifier.padding(top = 1.dp))
+                    Text("Map adjust mode", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+                    Text("Mirrors the bike joystick", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.5.sp, modifier = Modifier.padding(top = 1.dp))
                 }
             }
             OpenDashToggle(on = adjustMode, onChange = { adjustMode = it })
@@ -374,16 +382,16 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(Surf1)
-                .border(1.dp, Line, RoundedCornerShape(20.dp))
+                .background(if (ui.headingUp) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainer)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
                 .padding(horizontal = 16.dp, vertical = 12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(OpenDashIcons.Navi, null, tint = if (ui.headingUp) Gold else TextMid, modifier = Modifier.size(20.dp))
+                Icon(OpenDashIcons.Navi, null, tint = if (ui.headingUp) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(11.dp))
                 Column {
-                    Text("Heading-up map", color = TextHi, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
-                    Text(if (ui.headingUp) "Rotates to travel direction" else "North-up", color = TextLo, fontSize = 11.5.sp, modifier = Modifier.padding(top = 1.dp))
+                    Text("Heading-up map", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily)
+                    Text(if (ui.headingUp) "Rotates to travel direction" else "North-up", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.5.sp, modifier = Modifier.padding(top = 1.dp))
                 }
             }
             OpenDashToggle(on = ui.headingUp, onChange = { vm.toggleHeadingUp() })
@@ -402,8 +410,8 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(18.dp))
-                    .background(Surf1)
-                    .border(1.dp, Line, RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(18.dp))
                     .padding(vertical = 16.dp, horizontal = 12.dp),
             ) {
                 Joystick(
@@ -419,7 +427,7 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 OpenDashIconBtn(OpenDashIcons.Plus,  onClick = { vm.zoomIn() },  size = 52.dp)
-                Text("z${ui.mapZoom}", color = Gold, fontSize = 12.sp, fontFamily = GeistMonoFamily, fontWeight = FontWeight.SemiBold)
+                Text("z${ui.mapZoom}", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontFamily = GeistMonoFamily, fontWeight = FontWeight.SemiBold)
                 OpenDashIconBtn(OpenDashIcons.Minus, onClick = { vm.zoomOut() }, size = 52.dp)
                 OpenDashIconBtn(OpenDashIcons.Recenter, onClick = { vm.recenter(); pan = Offset.Zero }, size = 52.dp, active = true)
             }

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -117,7 +118,7 @@ fun RouteScreen(
                 .fillMaxSize()
                 .offset(y = (-22).dp)
                 .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                .background(Bg1)
+                .background(MaterialTheme.colorScheme.background)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 8.dp)
                 .padding(bottom = 20.dp),
@@ -126,7 +127,7 @@ fun RouteScreen(
             Box(
                 Modifier
                     .width(40.dp).height(4.dp)
-                    .clip(CircleShape).background(Line3)
+                    .clip(CircleShape).background(MaterialTheme.colorScheme.outlineVariant)
                     .align(Alignment.CenterHorizontally)
                     .padding(bottom = 16.dp)
             )
@@ -141,19 +142,19 @@ fun RouteScreen(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(GoldTint),
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                 ) {
-                    Icon(OpenDashIcons.LocationPin, contentDescription = null, tint = Gold, modifier = Modifier.size(22.dp))
+                    Icon(OpenDashIcons.LocationPin, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                 }
                 Spacer(Modifier.width(12.dp))
                 Column {
                     if (routeState.isResolving) {
-                        Text("Resolving…", color = TextLo, fontSize = 19.sp, fontWeight = FontWeight.Bold, fontFamily = GeistFamily, letterSpacing = (-0.38).sp)
+                        Text("Resolving…", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 19.sp, fontWeight = FontWeight.Bold, fontFamily = GeistFamily, letterSpacing = (-0.38).sp)
                     } else {
-                        Text(destName, color = TextHi, fontSize = 19.sp, fontWeight = FontWeight.Bold, fontFamily = GeistFamily, letterSpacing = (-0.38).sp)
+                        Text(destName, color = MaterialTheme.colorScheme.onSurface, fontSize = 19.sp, fontWeight = FontWeight.Bold, fontFamily = GeistFamily, letterSpacing = (-0.38).sp)
                     }
                     if (destSub.isNotBlank()) {
-                        Text(destSub, color = TextMid, fontSize = 13.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(top = 2.dp))
+                        Text(destSub, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
             }
@@ -173,14 +174,14 @@ fun RouteScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(20.dp))
-                            .background(Surf1)
-                            .border(1.dp, Line, RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp))
                             .padding(13.dp),
                     ) {
                         Row(verticalAlignment = Alignment.Bottom) {
-                            Text(v, color = TextHi, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
+                            Text(v, color = MaterialTheme.colorScheme.onSurface, fontSize = 22.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
                             Spacer(Modifier.width(4.dp))
-                            Text(u, color = TextLo, fontSize = 11.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(bottom = 2.dp))
+                            Text(u, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = GeistMonoFamily, modifier = Modifier.padding(bottom = 2.dp))
                         }
                         Eyebrow(k, Modifier.padding(top = 4.dp))
                     }
@@ -198,7 +199,7 @@ fun RouteScreen(
                 Icon(
                     if (voice == "Off") OpenDashIcons.SpeakerOff else OpenDashIcons.Speaker,
                     contentDescription = null,
-                    tint = if (voice == "Off") TextLo else Gold,
+                    tint = if (voice == "Off") MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -261,19 +262,19 @@ fun RouteScreen(
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
-                                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(GoldTint),
-                            ) { Icon(OpenDashIcons.LocationPin, null, tint = Gold, modifier = Modifier.size(20.dp)) }
+                                modifier = Modifier.size(40.dp).clip(RoundedCornerShape(11.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+                            ) { Icon(OpenDashIcons.LocationPin, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
                             Spacer(Modifier.width(13.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(loc.name, color = TextHi, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily, maxLines = 1)
+                                Text(loc.name, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistFamily, maxLines = 1)
                                 Text(
                                     if (loc.note.isNotBlank()) loc.note else "%.4f, %.4f".format(loc.lat, loc.lng),
-                                    color = TextLo, fontSize = 12.sp, fontFamily = GeistMonoFamily,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, fontFamily = GeistMonoFamily,
                                     modifier = Modifier.padding(top = 2.dp), maxLines = 1,
                                 )
                             }
                             Icon(
-                                OpenDashIcons.Edit, "edit", tint = TextLo,
+                                OpenDashIcons.Edit, "edit", tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(18.dp).clickable { editing = loc },
                             )
                         }
@@ -304,16 +305,16 @@ private fun SaveLocationDialog(defaultName: String, onSave: (String, String) -> 
     var note by remember { mutableStateOf("") }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), note.trim()) }) { Text("Save", color = if (name.isNotBlank()) Gold else TextLo) } },
-        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel", color = TextMid) } },
-        title = { Text("Save destination", color = TextHi) },
+        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), note.trim()) }) { Text("Save", color = if (name.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) } },
+        dismissButton = { androidx.compose.material3.TextButton(onClick = onDismiss) { Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        title = { Text("Save destination", color = MaterialTheme.colorScheme.onSurface) },
         text = {
             Column {
                 androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 androidx.compose.material3.OutlinedTextField(note, { note = it }, label = { Text("Note (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             }
         },
-        containerColor = Surf1,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
     )
 }
 
@@ -323,16 +324,16 @@ private fun EditLocationDialog(loc: com.example.opendash.data.SavedLocation, onS
     var note by remember { mutableStateOf(loc.note) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
-        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), note.trim()) }) { Text("Save", color = if (name.isNotBlank()) Gold else TextLo) } },
+        confirmButton = { androidx.compose.material3.TextButton(enabled = name.isNotBlank(), onClick = { onSave(name.trim(), note.trim()) }) { Text("Save", color = if (name.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant) } },
         dismissButton = { androidx.compose.material3.TextButton(onClick = onDelete) { Text("Delete", color = Alert) } },
-        title = { Text("Edit destination", color = TextHi) },
+        title = { Text("Edit destination", color = MaterialTheme.colorScheme.onSurface) },
         text = {
             Column {
                 androidx.compose.material3.OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 androidx.compose.material3.OutlinedTextField(note, { note = it }, label = { Text("Note") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
             }
         },
-        containerColor = Surf1,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
     )
 }
 

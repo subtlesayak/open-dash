@@ -33,7 +33,7 @@ distance-to-turn, remaining, ETA, off-route.
   LEFT=zoom out. No exit gesture (media section is for media).
 - [ ] **Joystick zoom WITHOUT entering media mode.** The dash only forwards the
   joystick (09 00) to the phone while in media-control mode; in the plain
-  projected-map view it keeps the joystick for its own menus. The official RE app
+  projected-map view it keeps the joystick for its own menus. The stock companion app
   apparently gets map control in nav view — capture the official app's session
   with Wireshark/tcpdump (user offered to do all regular actions while capturing)
   and find the packet/flag that enables joystick forwarding during projection.
@@ -67,7 +67,7 @@ Google-Maps-styled map streamed to the dash.
 
 - [x] **In-app Dash view = real Google Maps.** Replaced the decorative `CircularDash`
   (which drew a fake random polyline) with `OpenDashMap` (maps-compose `GoogleMap`)
-  clipped to the round Tripper shape: blue location dot, follows current location,
+  clipped to the round dash shape: blue location dot, follows current location,
   default Google view when no destination, route polyline + marker when navigating.
 - [x] **Streamed dash restyled to Google-Maps look.** `TileProvider` no longer
   inverts tiles to dark — uses standard light map tiles (also the cheapest path);
@@ -224,7 +224,7 @@ rider needs zero paid setup. The author never pays regardless of how many instal
   was the cause of "[16] reauth failed". Console-side, defer.
 - [ ] Verify screen-off streaming on the bike end-to-end (foreground service +
   locks landed; needs a real ride to confirm it holds and stays cool).
-- [ ] **Capture the official RE app with Wireshark** (user offered): joystick
+- [ ] **Capture the stock companion app with Wireshark** (user offered): joystick
   forwarding in nav view, time-sync cadence, telemetry decode (P1b), exact
   nav-info glyph codes. One good capture answers all four — do this next ride.
 

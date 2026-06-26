@@ -22,8 +22,8 @@ import com.example.opendash.ui.theme.*
 import kotlin.math.*
 
 /**
- * Circular Tripper Dash viewport — the signature element.
- * Mirrors the compatible Tripper round TFT display.
+ * Circular bike dash viewport — the signature element.
+ * Mirrors the compatible round TFT display.
  *
  * @param size      Diameter of the circle
  * @param pan       Map pan offset (±46 units)

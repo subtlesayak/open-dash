@@ -106,7 +106,7 @@ object OpenDashIcons {
     val Dash: ImageVector = pathVec(
         // Outer ring
         "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z",
-        // Inner ring (inner dot of Tripper)
+        // Inner ring (inner dot of the dash)
         "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"
     )
 
