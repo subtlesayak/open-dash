@@ -3,7 +3,7 @@ package com.example.opendash.dash.video
 import java.util.Random
 
 /**
- * RFC 6184 H.264 RTP packetizer tuned for the Tripper Dash.
+ * RFC 6184 H.264 RTP packetizer tuned for the bike dash.
  *
  * Rules enforced (from better-dash analysis):
  *  - NO STAP-A (type 24) — dash rejects aggregation packets

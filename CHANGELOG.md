@@ -30,7 +30,7 @@
 - Improved ride distance accuracy by rejecting poor GPS fixes and stationary drift.
 - Added GPS weak/lost indicators and heading-aware off-route detection.
 - Added the upstream MapLibre page-switch lifecycle crash fix.
-- Added now-playing and caller cards for the Tripper Dash.
+- Added now-playing and caller cards for the bike dash.
 - Added joystick controls for media tracks and incoming/active calls.
 - Added notification-access and call-control settings.
 - Reduced the arm64 release download from about 44.5 MB to about 14.4 MB with ABI-specific APKs.

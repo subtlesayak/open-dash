@@ -36,7 +36,7 @@ class NalProcessor(private val onNal: (ByteArray, Boolean) -> Unit) {
     }
 
     /**
-     * The Tripper firmware whitelists the stock phone's SPS shape (67 42 00 29…)
+     * The dash firmware whitelists the stock phone's SPS shape (67 42 00 29...)
      * before it will leave the loading state. MediaCodec emits a different
      * constraint byte (e.g. 67 42 C0 29…); rewrite byte[2] to 0x00 to match.
      * The constraint byte doesn't affect slice-header parsing, so this is safe.

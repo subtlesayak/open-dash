@@ -2,6 +2,7 @@ package com.example.opendash.dash
 
 import com.example.opendash.dash.protocol.DashCommands
 import com.example.opendash.dash.protocol.K1GPacket
+import com.example.opendash.util.CrashReporter
 import com.example.opendash.util.DebugLog
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,7 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class DashState { IDLE, CONNECTING, AUTHENTICATING, READY, STREAMING, ERROR }
 
 /**
- * Tripper Dash session, sequenced to match better-dash (tripper_app_like_nav.py):
+ * Bike dash session, sequenced to match better-dash:
  *   1. Open sockets (RX :2002 bound first).
  *   2. Send initial burst on :2000 (includes q3c.e request-auth).
  *   3. RX loop ingests 07 00 / 07 03 → sends q3c.d → waits for 07 01 01.
@@ -26,6 +27,7 @@ class DashSession(private val scope: CoroutineScope) {
         private const val BURST_PAUSE   = 20L
         private const val PROJ_HB_MS     = 250L   // 4 Hz
         private const val ROUTE_CARD_MS  = 1_000L // 1 Hz keep-alive
+        private const val RX_WATCHDOG_MS = 6_000L
         private const val HOSTNAME       = "OpenDash"
     }
 
@@ -39,6 +41,7 @@ class DashSession(private val scope: CoroutineScope) {
 
     var onButton: ((Byte) -> Unit)? = null
     var onError:  ((String) -> Unit)? = null
+    var onAmbientLight: ((Int) -> Unit)? = null
 
     @Volatile var destinationName: String = "OpenDash"
 
@@ -49,6 +52,8 @@ class DashSession(private val scope: CoroutineScope) {
     private var heartbeatJob: Job? = null
     private var navInfoJob: Job? = null
     private var mediaInfoJob: Job? = null
+    @Volatile private var lastRxMs = 0L
+    @Volatile private var loggedFirstAck = false
 
     @Volatile private var mediaTitle: String? = null
     @Volatile private var mediaAlbum = ""
@@ -59,10 +64,27 @@ class DashSession(private val scope: CoroutineScope) {
         mediaTitle = title?.takeIf { it.isNotBlank() }
         mediaAlbum = album
         mediaArtist = artist
+        val nowTitle = mediaTitle ?: return
+        if (_state.value == DashState.STREAMING) {
+            DebugLog.i(TAG) { "Forwarding media: '$nowTitle' · '$mediaArtist'" }
+            scope.launch(Dispatchers.IO) {
+                socket?.send(DashCommands.nowPlaying(nowTitle, mediaAlbum, mediaArtist))
+            }
+        }
     }
 
     fun updateCall(caller: String?) {
         callerName = caller?.takeIf { it.isNotBlank() }
+        val current = callerName
+        if (_state.value == DashState.STREAMING) {
+            scope.launch(Dispatchers.IO) {
+                if (current != null) {
+                    socket?.send(DashCommands.callNotify(current))
+                } else {
+                    socket?.send(DashCommands.callClear())
+                }
+            }
+        }
     }
 
     // Live nav-info pushed to the dash bubble at ~1 Hz (set by NavEngine output).
@@ -157,6 +179,8 @@ class DashSession(private val scope: CoroutineScope) {
         navInfoJob?.cancel(); mediaInfoJob?.cancel()
         navActive = false
         navChromeEnabled = false
+        lastRxMs = 0L
+        loggedFirstAck = false
         socket?.let {
             runCatching { it.send(DashCommands.projectionStop()) }
             runCatching { it.send(DashCommands.projectionOff()) }
@@ -182,6 +206,8 @@ class DashSession(private val scope: CoroutineScope) {
             auth = DashAuth(ssid)
             authConfirmed = false
             authRetries = 0
+            lastRxMs = System.currentTimeMillis()
+            loggedFirstAck = false
 
             // RX loop MUST be running before the burst (early pubkey + no ICMP).
             launchReceiveLoop(sock)
@@ -259,6 +285,7 @@ class DashSession(private val scope: CoroutineScope) {
                     onError?.invoke("Lost connection to dash")
                     break
                 } ?: continue
+                lastRxMs = System.currentTimeMillis()
                 dispatchIncoming(pkt, sock)
             }
         }
@@ -298,6 +325,10 @@ class DashSession(private val scope: CoroutineScope) {
             if (tlv.type == 0x09 && tlv.sub == 0x06 &&
                 tlv.value.firstOrNull()?.toInt() == 0x55
             ) {
+                if (!loggedFirstAck) {
+                    loggedFirstAck = true
+                    DebugLog.i(TAG) { "First frame decoded ACK received" }
+                }
                 sock.send(DashCommands.frameDecodedIdr())
                 continue
             }
@@ -333,6 +364,11 @@ class DashSession(private val scope: CoroutineScope) {
             }
             // ── 0C xx: dash → app telemetry (trip/odo/fuel/temp — P1b) ──
             if (tlv.type == 0x0C) {
+                if (tlv.sub == 0x26 && tlv.value.isNotEmpty()) {
+                    val ambient = tlv.value.last().toInt() and 0xFF
+                    DebugLog.i(TAG) { "DASH AMBIENT 0C/26 value=0x%02X (%d)".format(ambient, ambient) }
+                    scope.launch(Dispatchers.Main) { onAmbientLight?.invoke(ambient) }
+                }
                 DebugLog.i(TAG) { "DASH TELEMETRY 0C sub=0x%02X (%dB) val=%s"
                     .format(tlv.sub, tlv.value.size, tlv.value.toHexFull()) }
                 continue
@@ -352,6 +388,15 @@ class DashSession(private val scope: CoroutineScope) {
                 runCatching { sock.send(DashCommands.heartbeat()) }
                 // Keep the dash clock correct — it only shows what the phone feeds it.
                 if (n++ % 30 == 0) runCatching { sock.send(DashCommands.timeSync()) }
+                val now = System.currentTimeMillis()
+                if (_state.value == DashState.STREAMING &&
+                    navChromeEnabled &&
+                    loggedFirstAck &&
+                    now - lastRxMs > RX_WATCHDOG_MS
+                ) {
+                    fail("Dash RX watchdog timed out")
+                    return@launch
+                }
                 delay(1_000)
             }
         }
@@ -420,6 +465,7 @@ class DashSession(private val scope: CoroutineScope) {
 
     private fun fail(msg: String) {
         DebugLog.e(TAG, { "ERROR — $msg" })
+        CrashReporter.recordNonFatal("dash_session_fail", msg)
         rxJob?.cancel(); heartbeatJob?.cancel(); mediaInfoJob?.cancel()
         socket?.close(); socket = null
         _state.value = DashState.ERROR

@@ -102,15 +102,19 @@ val OpenDashThemeVariants = listOf(
 object OpenDashThemeController {
     private const val PREFS = "appearance"
     private const val KEY_VARIANT = "theme_variant"
+    private const val KEY_OLED_DARK = "oled_dark"
     val defaultVariant = OpenDashThemeVariants.first { it.name == "Hanle Black" }
 
     private val _variant = MutableStateFlow(defaultVariant)
     val variant = _variant.asStateFlow()
+    private val _oledDark = MutableStateFlow(false)
+    val oledDark = _oledDark.asStateFlow()
 
     fun init(context: Context) {
-        val saved = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getString(KEY_VARIANT, defaultVariant.name)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saved = prefs.getString(KEY_VARIANT, defaultVariant.name)
         _variant.value = OpenDashThemeVariants.firstOrNull { it.name == saved } ?: defaultVariant
+        _oledDark.value = prefs.getBoolean(KEY_OLED_DARK, false)
     }
 
     fun select(context: Context, variant: OpenDashThemeVariant) {
@@ -118,6 +122,14 @@ object OpenDashThemeController {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putString(KEY_VARIANT, variant.name)
+            .apply()
+    }
+
+    fun setOledDark(context: Context, enabled: Boolean) {
+        _oledDark.value = enabled
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_OLED_DARK, enabled)
             .apply()
     }
 }
@@ -203,6 +215,22 @@ private fun openDashColorScheme(variant: OpenDashThemeVariant): ColorScheme = da
     scrim              = Color.Black,
 )
 
+private fun ColorScheme.withOledDark(enabled: Boolean): ColorScheme {
+    if (!enabled) return this
+    val black = Color.Black
+    val lifted = Color(0xFF050505)
+    val raised = Color(0xFF0A0A0A)
+    return copy(
+        background = black,
+        surface = black,
+        surfaceDim = black,
+        surfaceContainerLowest = black,
+        surfaceContainerLow = lifted,
+        surfaceContainer = raised,
+        surfaceVariant = raised,
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun OpenDashTheme(content: @Composable () -> Unit) {
@@ -212,6 +240,7 @@ fun OpenDashTheme(content: @Composable () -> Unit) {
         true
     }
     val variant by OpenDashThemeController.variant.collectAsState()
+    val oledDark by OpenDashThemeController.oledDark.collectAsState()
     val systemDark = isSystemInDarkTheme()
     val colorScheme = when (variant.name) {
         "Dynamic Wallpaper" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -221,7 +250,7 @@ fun OpenDashTheme(content: @Composable () -> Unit) {
         }
         "Auto Day/Night" -> autoDayNightColorScheme(systemDark)
         else -> openDashColorScheme(variant)
-    }
+    }.withOledDark(oledDark)
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
         typography = Typography,

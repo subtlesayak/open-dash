@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -84,14 +85,16 @@ class RouteViewModel(app: Application) : AndroidViewModel(app) {
         val loc = LocationParser.parse(text)
         _state.value = RouteState(
             destination = loc,
-            isResolving = loc.needsExpansion,
+            isResolving = loc.needsExpansion || (loc.url != null && loc.lat == null && loc.lng == null),
             pendingNavigate = true,
         )
         if (loc.lat != null && loc.lng != null) {
             computeRoute(loc.lat, loc.lng)
         } else if (loc.url != null) {
             viewModelScope.launch {
-                val (urlCoords, resolvedName) = LocationParser.resolve(loc.url)
+                val (urlCoords, resolvedName) = withTimeoutOrNull(12_000L) {
+                    LocationParser.resolve(loc.url)
+                } ?: (null to null)
                 val name = when {
                     loc.name.isNotBlank() && loc.name != "Loading…" -> loc.name
                     !resolvedName.isNullOrBlank() -> resolvedName
@@ -157,6 +160,13 @@ class RouteViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onNavigated() { _state.value = _state.value.copy(pendingNavigate = false) }
     fun clear() { _state.value = RouteState() }
+
+    fun refreshRouteIfPossible() {
+        val d = _state.value.destination ?: return
+        val lat = d.lat ?: return
+        val lng = d.lng ?: return
+        computeRoute(lat, lng)
+    }
 
     private fun fmtKm(m: Double) = "%.0f km".format(m / 1000.0)
     private fun fmtDuration(sec: Double): String {

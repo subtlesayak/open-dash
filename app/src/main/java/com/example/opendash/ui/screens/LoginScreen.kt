@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -12,8 +13,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -25,7 +24,7 @@ import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import com.example.opendash.BuildConfig
-import com.example.opendash.ui.components.CircularDash
+import com.example.opendash.ui.OpenDashIcons
 import com.example.opendash.ui.components.BtnShape
 import com.example.opendash.ui.theme.*
 import com.example.opendash.viewmodel.AuthViewModel
@@ -79,13 +78,7 @@ fun LoginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colorStops = arrayOf(0f to Color(0xFF15191B), 0.6f to Bg1),
-                    center = Offset(0.5f, 0f),
-                    radius = Float.MAX_VALUE,
-                )
-            ),
+            .background(MaterialTheme.colorScheme.background),
     ) {
         Column(
             modifier = Modifier
@@ -98,34 +91,46 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                CircularDash(
-                    size = 140.dp,
-                    pan = Offset.Zero,
-                    zoom = 1.05f,
-                    compact = true,
-                    live = true,
-                )
+                Box(
+                    modifier = Modifier
+                        .size(132.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        OpenDashIcons.Dash,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(68.dp),
+                    )
+                }
 
                 Spacer(Modifier.height(30.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "OpenDash",
-                        color = TextHi,
+                        color = MaterialTheme.colorScheme.onBackground,
                         fontFamily = GeistMonoFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 32.sp,
                         letterSpacing = 0.16.sp,
                     )
                     Spacer(Modifier.width(9.dp))
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(Gold))
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
                 }
 
                 Spacer(Modifier.height(12.dp))
 
                 Text(
-                    "Your Himalayan's co-pilot.\nRoutes to the dash, eyes on the road.",
-                    color = TextMid,
+                    "Your ride's co-pilot.\nRoutes to the dash, eyes on the road.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 14.sp,
                     lineHeight = 21.sp,
                     textAlign = TextAlign.Center,
@@ -139,7 +144,7 @@ fun LoginScreen(
                 if (displayError != null) {
                     Text(
                         displayError,
-                        color = Alert,
+                        color = MaterialTheme.colorScheme.error,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(bottom = 12.dp),
                     )
@@ -159,8 +164,8 @@ fun LoginScreen(
                             modifier = Modifier.fillMaxWidth().height(56.dp),
                             shape = BtnShape,
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFF8F8F8),
-                                contentColor = Color(0xFF1F1F1F),
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
                                 disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                             ),
@@ -203,12 +208,19 @@ fun LoginScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Box(Modifier.size(5.dp).clip(CircleShape).background(TextLo))
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
                     Spacer(Modifier.width(7.dp))
                     Text(
                         if (authState.syncAvailable) "Sign in to sync across devices · data stays local otherwise"
                         else "Local only · add a Firebase project to sync across devices",
-                        color = TextLo, fontSize = 12.5.sp, textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.5.sp,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }

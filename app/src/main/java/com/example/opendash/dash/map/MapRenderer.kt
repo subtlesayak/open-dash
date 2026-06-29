@@ -12,7 +12,7 @@ import android.graphics.RectF
 import com.example.opendash.dash.nav.GeoPoint
 
 /**
- * Draws the navigation frame for the Tripper Dash (526 × 300).
+ * Draws the navigation frame for the bike dash (526 × 300).
  *
  * Layers: OSM tiles (already dark-filtered by TileProvider) → road route polyline
  * → destination pin → rider marker → top banner (name + remaining) → maneuver chip.
@@ -44,16 +44,17 @@ class MapRenderer(private val tiles: TileProvider) {
         val gpsLost: Boolean = false,
     )
 
-    private val bgColor   = Color.rgb(229, 227, 223) // Google Maps land colour, behind missing tiles
-    private val routeBlue = Color.rgb(66, 133, 244)  // Google Maps directions blue (#4285F4)
+    private val bgColor   = Color.rgb(232, 231, 220) // muted Mapbox/Beeline-like land colour behind missing tiles
+    private val routeBlue = Color.rgb(66, 133, 244)
     private val googleRed = Color.rgb(234, 67, 53)   // Google destination pin red (#EA4335)
 
     private val tilePaint  = Paint(Paint.FILTER_BITMAP_FLAG).apply {
-        // Google tiles already carry the right colours/contrast — only a gentle
-        // saturation nudge to help against the dash TFT's daylight wash-out. No
-        // brightness/contrast tricks (those flattened or clipped the map before).
+        // Only a gentle saturation nudge to help against the dash TFT's daylight
+        // wash-out. No brightness/contrast tricks (those flattened or clipped
+        // the map before).
         colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(1.2f) })
     }
+    private val mapboxTilePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
     private val routeCasing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; style = Paint.Style.STROKE
         strokeWidth = 11f; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -68,11 +69,11 @@ class MapRenderer(private val tiles: TileProvider) {
     private val bannerPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(215, 13, 15, 17) }
     private val standbyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(60, 64, 67); textSize = 22f; isFakeBoldText = true }
 
-    // ETA pill (drawn in screen space, bottom-centre, inside the round safe zone)
+    // ETA pill (drawn in screen space, right-aligned for rider glanceability)
     private val etaBgPaint     = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(232, 20, 22, 26) }
     private val etaBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(46, 255, 255, 255); style = Paint.Style.STROKE; strokeWidth = 1.5f }
-    private val etaBigPaint    = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(126, 217, 87); textSize = 20f; isFakeBoldText = true; textAlign = Paint.Align.CENTER }   // Google-nav green
-    private val etaSmallPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(196, 201, 208); textSize = 12f; textAlign = Paint.Align.CENTER }
+    private val etaBigPaint    = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(126, 217, 87); textSize = 28f; isFakeBoldText = true; textAlign = Paint.Align.CENTER }   // Google-nav green
+    private val etaSmallPaint  = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(216, 221, 228); textSize = 17f; isFakeBoldText = true; textAlign = Paint.Align.CENTER }
     private val gpsPillText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textSize = 13f
         isFakeBoldText = true
@@ -97,9 +98,9 @@ class MapRenderer(private val tiles: TileProvider) {
         val rotate = f.headingUp
         val tilt = rotate && f.tilt3d
         // Nav view: bias the rider toward the lower third so the road AHEAD fills the
-        // screen (like Google Maps navigation). 3D pushes it lower still. North-up
+        // screen like a turn-by-turn navigation view. 3D pushes it lower still. North-up
         // view keeps the rider centred.
-        val pivotY = if (rotate) (if (tilt) h * 0.74f else h * 0.66f) else h / 2f
+        val pivotY = if (rotate) (if (tilt) h * 0.69f else h * 0.66f) else h / 2f
 
         val ts = Mercator.TILE_SIZE
         val cx = Mercator.lngToTileX(f.centerLng, f.zoom) * ts + f.panX
@@ -115,15 +116,18 @@ class MapRenderer(private val tiles: TileProvider) {
             if (tilt) {
                 // Perspective tilt: warp the flat frame into a trapezoid that converges
                 // toward the top, so the road ahead recedes into the distance (the
-                // Google-Maps 3D look). Near things (rider, bottom) stay ~undistorted;
+                // 3D navigation look). Near things (rider, bottom) stay ~undistorted;
                 // far things (dest, route ahead) shrink, which is exactly right.
-                val inset = w * 0.18f
+                // Mild pseudo-pitch only. A strong trapezoid makes raster map labels
+                // look skewed on the round dash, so keep this close to a 30-degree feel.
+                val inset = w * 0.11f
+                val horizon = h * 0.07f
                 tiltSrc[0] = 0f;          tiltSrc[1] = 0f
                 tiltSrc[2] = w.toFloat(); tiltSrc[3] = 0f
                 tiltSrc[4] = w.toFloat(); tiltSrc[5] = h.toFloat()
                 tiltSrc[6] = 0f;          tiltSrc[7] = h.toFloat()
-                tiltDst[0] = inset;          tiltDst[1] = 0f
-                tiltDst[2] = w - inset;      tiltDst[3] = 0f
+                tiltDst[0] = inset;          tiltDst[1] = horizon
+                tiltDst[2] = w - inset;      tiltDst[3] = horizon
                 tiltDst[4] = w.toFloat();    tiltDst[5] = h.toFloat()
                 tiltDst[6] = 0f;             tiltDst[7] = h.toFloat()
                 tiltMatrix.setPolyToPoly(tiltSrc, 0, tiltDst, 0, 4)
@@ -138,12 +142,13 @@ class MapRenderer(private val tiles: TileProvider) {
         val tyMin = Math.floorDiv((top - pad).toInt(), ts)
         val txMax = Math.floorDiv((left + w + pad).toInt(), ts)
         val tyMax = Math.floorDiv((top + h + pad).toInt(), ts)
+        val activeTilePaint = if (tiles.usesMapboxTiles()) mapboxTilePaint else tilePaint
         for (tx in txMin..txMax) for (ty in tyMin..tyMax) {
             val bmp = tiles.get(f.zoom, tx, ty) ?: continue
             val dstL = (tx * ts - left).toFloat()
             val dstT = (ty * ts - top).toFloat()
             tmpRect.set(dstL, dstT, dstL + ts, dstT + ts)
-            canvas.drawBitmap(bmp, null, tmpRect, tilePaint)
+            canvas.drawBitmap(bmp, null, tmpRect, activeTilePaint)
         }
 
         // ── Road route polyline ──
@@ -198,23 +203,24 @@ class MapRenderer(private val tiles: TileProvider) {
 
         if (rotate) canvas.restore()
 
-        // ── ETA pill (screen-space so it stays upright; bottom-centre safe zone) ──
-        // The dash is round, so it's kept narrow and centred. Shows ETA only (time +
-        // arrival clock) — distance lives on the dash's own widget.
+        // ── ETA pill (screen-space so it stays upright; right-aligned safe zone) ──
+        // The dash is round, so keep it compact and near the right edge where the rider
+        // can glance at duration + ETA without covering the route marker.
         f.etaPrimary?.let { primary ->
             val secondary = f.etaSecondary
-            val padH = 18f; val padV = 8f; val gap = 1f
+            val padH = 20f; val padV = 10f; val gap = 2f
             val bigFm = etaBigPaint.fontMetrics
             val smallFm = etaSmallPaint.fontMetrics
             val bigH = bigFm.descent - bigFm.ascent
             val smallH = if (secondary != null) smallFm.descent - smallFm.ascent else 0f
             val contentW = maxOf(etaBigPaint.measureText(primary), secondary?.let { etaSmallPaint.measureText(it) } ?: 0f)
-            val pillW = (contentW + padH * 2).coerceAtMost(w * 0.6f)
+            val pillW = (contentW + padH * 2).coerceAtMost(w * 0.52f)
             val pillH = padV * 2 + bigH + (if (secondary != null) gap + smallH else 0f)
-            val cxp = w / 2f
-            val bottom = h - 26f
+            val right = w - 18f
+            val cxp = right - pillW / 2f
+            val bottom = h - 34f
             val top = bottom - pillH
-            pillRect.set(cxp - pillW / 2f, top, cxp + pillW / 2f, bottom)
+            pillRect.set(right - pillW, top, right, bottom)
             val r = pillH / 2f
             canvas.drawRoundRect(pillRect, r, r, etaBgPaint)
             canvas.drawRoundRect(pillRect, r, r, etaBorderPaint)

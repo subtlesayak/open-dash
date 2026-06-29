@@ -257,10 +257,11 @@ object DashCommands {
 
     // Captured from reference app behavior. These are additive media/call cards and do not
     // alter auth, projection, route-card, ACK, or RTP packet behavior.
-    private const val MEDIA_FIELD_MAX = 20
+    private const val MEDIA_FIELD_MAX = 32
+    private const val CALLER_FIELD_MAX = 20
 
-    private fun mediaField(value: String): ByteArray =
-        value.take(MEDIA_FIELD_MAX).toByteArray(Charsets.UTF_8)
+    private fun mediaField(value: String, maxChars: Int = MEDIA_FIELD_MAX): ByteArray =
+        value.take(maxChars).toByteArray(Charsets.UTF_8)
 
     /** 05 0D: title, album, and artist as NUL-separated UTF-8 fields. */
     fun nowPlaying(title: String, album: String, artist: String): ByteArray {
@@ -277,7 +278,7 @@ object DashCommands {
     /** 05 22: NUL-terminated caller display name. */
     fun callNotify(callerName: String): ByteArray =
         K1GPacket.build(
-            K1GPacket.tlv(0x05, 0x22, mediaField(callerName) + 0x00.toByte()),
+            K1GPacket.tlv(0x05, 0x22, mediaField(callerName, CALLER_FIELD_MAX) + 0x00.toByte()),
         )
 
     /** Clears a previously repeated 05 22 call card. */

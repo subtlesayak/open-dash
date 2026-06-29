@@ -1,6 +1,6 @@
 # Maintenance Sources
 
-OpenDash's bundled spare-parts schedule for the default Himalayan 450 is based on the official **Royal Enfield New Himalayan 450 Owner's Manual (UK English)**, section **Periodical Maintenance**, printed pages 122-127 (PDF pages 124-129).
+OpenDash's bundled spare-parts schedule for the default Himalayan 450 is based on the official **New Himalayan 450 Owner's Manual (UK English)**, section **Periodical Maintenance**, printed pages 122-127 (PDF pages 124-129).
 
 The application uses the recurring schedule after the initial 500 km service:
 

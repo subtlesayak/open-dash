@@ -23,6 +23,9 @@ class LocationTracker(context: Context) {
     private val _location = MutableStateFlow<Location?>(null)
     val location = _location.asStateFlow()
 
+    private val _enabled = MutableStateFlow(isLocationEnabled())
+    val enabled = _enabled.asStateFlow()
+
     private val listener = LocationListener { loc ->
         val cur = _location.value
         if (acceptFix(cur, loc)) {
@@ -69,18 +72,28 @@ class LocationTracker(context: Context) {
     /** Requires ACCESS_FINE_LOCATION at runtime; no-ops without it. */
     @SuppressLint("MissingPermission")
     fun start() {
-        if (running) return
+        if (running && isLocationEnabled()) return
         try {
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .filter { lm.isProviderEnabled(it) }
+            _enabled.value = providers.isNotEmpty()
+            if (providers.isEmpty()) {
+                running = false
+                DebugLog.w(TAG) { "Location services disabled — no providers registered" }
+                return
+            }
+            if (running) {
+                lm.removeUpdates(listener)
+                running = false
+            }
             _location.value = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
                 ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             // GPS for accuracy + heading; NETWORK as a fallback while GPS warms up.
             // minDistance=0: keep GPS fixes flowing every second even when parked.
             // With a minimum distance, GPS goes quiet while stationary, its last fix
             // ages out, and a coarse NETWORK fix takes over → the marker drifts.
-            for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-                if (lm.isProviderEnabled(provider)) {
-                    lm.requestLocationUpdates(provider, 500L, 0f, listener, Looper.getMainLooper())
-                }
+            for (provider in providers) {
+                lm.requestLocationUpdates(provider, 500L, 0f, listener, Looper.getMainLooper())
             }
             running = true
             DebugLog.i(TAG) { "Location updates started" }
@@ -97,6 +110,15 @@ class LocationTracker(context: Context) {
         running = false
     }
 
+    fun refreshEnabled(): Boolean {
+        val nowEnabled = isLocationEnabled()
+        _enabled.value = nowEnabled
+        if (!nowEnabled && running) {
+            stop()
+        }
+        return nowEnabled
+    }
+
     /** Best last-known fix without starting updates (for routing before connecting). */
     @SuppressLint("MissingPermission")
     fun lastKnown(): android.location.Location? = try {
@@ -106,5 +128,12 @@ class LocationTracker(context: Context) {
             ?: lm.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
     } catch (e: Exception) {
         null
+    }
+
+    private fun isLocationEnabled(): Boolean = try {
+        lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    } catch (e: Exception) {
+        false
     }
 }

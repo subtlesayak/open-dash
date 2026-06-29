@@ -1,16 +1,20 @@
 package com.example.opendash.data
 
 import android.content.Context
+import com.example.opendash.BuildConfig
 import com.google.firebase.FirebaseApp
 
 /**
- * Single source of truth for "is Firebase even available?". Firebase is optional
- * (bring-your-own-project): without a google-services.json the default [FirebaseApp] is
- * never initialized, so every Firebase call would throw. Gate all Firebase access behind
- * [isConfigured] and the app runs fully local — sync simply doesn't exist.
+ * Single source of truth for "is Firebase sync available?".
+ *
+ * Firebase is bring-your-own-project. If the Google Services plugin did not initialize
+ * Firebase for this application id, every auth/sync path stays disabled and OpenDash
+ * remains local-only.
  */
 object FirebaseGate {
-    /** True only when a google-services.json was present at build time and Firebase initialized. */
     fun isConfigured(context: Context): Boolean =
-        FirebaseApp.getApps(context.applicationContext).isNotEmpty()
+        runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
+
+    fun canUseGoogleSignIn(context: Context): Boolean =
+        isConfigured(context) && BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()
 }

@@ -10,7 +10,8 @@ import java.net.URL
 /**
  * Fetches a road route from the public OSRM demo server. Called at planning time
  * (destination shared) while the phone still has internet — the result is cached
- * so riding can proceed offline. Driving profile suits the Himalayan fine.
+ * so riding can proceed offline. OSRM's public demo server has no motorcycle profile,
+ * so this remains the driving fallback behind OpenDash's motorcycle-tuned Mapbox mode.
  */
 object Router {
     private const val TAG = "Router"
