@@ -5,13 +5,17 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     // Firebase is OPTIONAL / bring-your-own-project: the Google Services plugin is only
-    // applied when google-services.json contains a client for the requested package.
-    // Without it the app builds and runs fully local (no sync).
+    // applied when a google-services.json is present for the current applicationId.
+    // Without it the app builds and runs fully local (no sync) — a rider who doesn't
+    // want multi-device sync just omits the file. To enable sync, drop your own
+    // Firebase project's google-services.json in app/.
     alias(libs.plugins.google.services) apply false
+    alias(libs.plugins.firebase.crashlytics) apply false
 }
 
 val localApplicationId = "com.opendash.app"
 val playApplicationId = "com.subtlesayak.opendash"
+val mapboxTestApplicationId = "com.opendash.mapboxtest"
 val debugApplicationIdSuffix = ".mui3"
 val googleServicesFile = project.file("google-services.json")
 val firebaseClientPackages = if (googleServicesFile.exists()) {
@@ -23,35 +27,35 @@ val firebaseClientPackages = if (googleServicesFile.exists()) {
     emptySet()
 }
 val requestedTasks = gradle.startParameter.taskNames
-val firebaseFlavorNames = listOf("local", "play")
+val firebaseFlavorNames = listOf("local", "play", "mapboxTest")
 val requestedTaskMentionsFirebaseFlavor = requestedTasks.any { task ->
     firebaseFlavorNames.any { flavor -> task.contains(flavor, ignoreCase = true) }
 }
-val requestedFirebasePackageCandidates = mutableSetOf<String>().apply {
+val requestedFirebasePackageCandidates = buildSet {
     fun addFlavor(flavorName: String, applicationId: String) {
         val mentionsFlavor = requestedTasks.isEmpty() ||
             !requestedTaskMentionsFirebaseFlavor ||
             requestedTasks.any { it.contains(flavorName, ignoreCase = true) }
         if (!mentionsFlavor) return
-        val debugRequested = requestedTasks.isEmpty() ||
-            requestedTasks.any { it.contains("debug", ignoreCase = true) }
-        val releaseRequested = requestedTasks.isEmpty() ||
-            requestedTasks.any { task ->
-                task.contains("release", ignoreCase = true) ||
-                    task.contains("bundle", ignoreCase = true)
-            }
+        val debugRequested = requestedTasks.isEmpty() || requestedTasks.any { it.contains("debug", ignoreCase = true) }
+        val releaseRequested = requestedTasks.isEmpty() || requestedTasks.any {
+            it.contains("release", ignoreCase = true) || it.contains("bundle", ignoreCase = true)
+        }
         if (debugRequested) add(applicationId + debugApplicationIdSuffix)
         if (releaseRequested) add(applicationId)
         add(applicationId)
     }
     addFlavor("local", localApplicationId)
     addFlavor("play", playApplicationId)
+    addFlavor("mapboxTest", mapboxTestApplicationId)
 }
 val hasFirebaseConfig = requestedFirebasePackageCandidates.any { it in firebaseClientPackages }
-val buildingBundle = requestedTasks.any { it.contains("bundle", ignoreCase = true) }
+fun firebaseConfigIncludes(applicationId: String): Boolean =
+    applicationId in firebaseClientPackages || applicationId + debugApplicationIdSuffix in firebaseClientPackages
 
 if (hasFirebaseConfig) {
     apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 val localProperties = Properties().apply {
@@ -59,6 +63,15 @@ val localProperties = Properties().apply {
 }
 val googleWebClientId = providers.gradleProperty("GOOGLE_WEB_CLIENT_ID").orNull
     ?: localProperties.getProperty("GOOGLE_WEB_CLIENT_ID").orEmpty()
+val useMapboxNavigationExperimental =
+    (providers.gradleProperty("USE_MAPBOX_NAVIGATION_EXPERIMENTAL").orNull
+        ?: localProperties.getProperty("USE_MAPBOX_NAVIGATION_EXPERIMENTAL")
+        ?: "false").toBoolean()
+val mapboxAccessToken = providers.gradleProperty("MAPBOX_ACCESS_TOKEN").orNull
+    ?: localProperties.getProperty("MAPBOX_ACCESS_TOKEN").orEmpty()
+val buildingBundle = gradle.startParameter.taskNames.any {
+    it.contains("bundle", ignoreCase = true)
+}
 
 val keystoreProperties = Properties()
 val keystorePropertiesFile = rootProject.file("key.properties")
@@ -87,6 +100,13 @@ android {
             "GOOGLE_WEB_CLIENT_ID",
             "\"${googleWebClientId.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
         )
+        buildConfigField("boolean", "CRASHLYTICS_ENABLED", "false")
+        buildConfigField("boolean", "USE_MAPBOX_NAVIGATION_EXPERIMENTAL", useMapboxNavigationExperimental.toString())
+        buildConfigField(
+            "String",
+            "MAPBOX_ACCESS_TOKEN",
+            "\"${mapboxAccessToken.replace("\\", "\\\\").replace("\"", "\\\"")}\"",
+        )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -96,10 +116,23 @@ android {
         create("local") {
             dimension = "distribution"
             applicationId = localApplicationId
+            buildConfigField("boolean", "CRASHLYTICS_ENABLED", "false")
         }
         create("play") {
             dimension = "distribution"
             applicationId = playApplicationId
+            buildConfigField(
+                "boolean",
+                "CRASHLYTICS_ENABLED",
+                firebaseConfigIncludes(playApplicationId).toString(),
+            )
+            buildConfigField("boolean", "USE_MAPBOX_NAVIGATION_EXPERIMENTAL", "true")
+        }
+        create("mapboxTest") {
+            dimension = "distribution"
+            applicationId = mapboxTestApplicationId
+            buildConfigField("boolean", "CRASHLYTICS_ENABLED", firebaseConfigIncludes(mapboxTestApplicationId).toString())
+            buildConfigField("boolean", "USE_MAPBOX_NAVIGATION_EXPERIMENTAL", "true")
         }
     }
 
@@ -166,9 +199,9 @@ android {
         resValues = true
     }
 
-    // GitHub releases can publish the matching ABI APK (arm64 for most current phones)
+    // GitHub APK releases can publish the matching ABI APK (arm64 for most current phones)
     // instead of forcing every device to download all four MapLibre native libraries.
-    // The universal artifact remains available for simple local/debug installation.
+    // Android App Bundles must not build multiple split APK artifacts during bundle tasks.
     splits {
         abi {
             isEnable = !buildingBundle
@@ -208,6 +241,8 @@ dependencies {
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
+    implementation(libs.firebase.crashlytics)
+    implementation(libs.firebase.crashlytics.ndk)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services)
     implementation(libs.androidx.security.crypto)
@@ -215,6 +250,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.maplibre)
     implementation(libs.maplibre.annotation)
+    if (useMapboxNavigationExperimental) {
+        implementation(libs.mapbox.maps)
+        implementation(libs.mapbox.navigation)
+    }
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)

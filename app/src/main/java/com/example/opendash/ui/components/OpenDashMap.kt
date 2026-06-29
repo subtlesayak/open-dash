@@ -1,9 +1,12 @@
 package com.example.opendash.ui.components
 
+import com.example.opendash.data.DashDisplayMode
+
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +20,8 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.opendash.BuildConfig
+import com.example.opendash.data.ExperimentalNavigationSettings
 import com.example.opendash.dash.nav.GeoPoint
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
@@ -31,17 +36,19 @@ import org.maplibre.android.plugins.annotation.LineOptions
 import org.maplibre.android.plugins.annotation.SymbolManager
 import org.maplibre.android.plugins.annotation.SymbolOptions
 
-// Free, keyless, redistributable vector basemap (look-first, per the distribution decision).
+// Default phone-preview basemap. The experimental Mapbox flag swaps this to detailed Mapbox tiles.
 private const val STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+private fun mapboxNavigationStyleId(night: Boolean): String =
+    if (night) "dark-v11" else "streets-v12"
 private const val FOLLOW_ZOOM = 15.5
-private const val NAV_ZOOM = 17.5
-private const val NAV_TILT = 45.0
+private const val NAV_ZOOM = 18.0
+private const val NAV_TILT = 30.0
 private const val RIDER_ICON = "rider-chevron"
 private const val DEST_ICON = "dest-pin"
 
 /**
- * In-app phone map (MapLibre + OpenFreeMap). Keyless and redistributable — no Google
- * Maps SDK / API key. The physical dash still uses the off-screen power-efficient renderer.
+ * In-app phone map. Defaults to OpenFreeMap, and uses Mapbox raster tiles when the
+ * experimental Mapbox navigation flag and access token are both present.
  *
  * Modes: [fitRoute] frames the whole route; [navMode] tilts/zooms/rotates to heading with a
  * rider chevron; default follows the rider north-up.
@@ -60,6 +67,18 @@ fun OpenDashMap(
 ) {
     val context = LocalContext.current
     remember { MapLibre.getInstance(context) }
+    remember(context) {
+        ExperimentalNavigationSettings.init(context.applicationContext)
+        true
+    }
+    val mapboxNavigationEnabled by ExperimentalNavigationSettings.mapboxNavigationEnabled.collectAsState()
+    val useMapboxPreview =
+        BuildConfig.USE_MAPBOX_NAVIGATION_EXPERIMENTAL &&
+            mapboxNavigationEnabled &&
+            BuildConfig.MAPBOX_ACCESS_TOKEN.isNotBlank()
+    val dashNightModeState = DashDisplayMode.nightMode.collectAsState()
+    val mapboxStyleId = mapboxNavigationStyleId(dashNightModeState.value)
+    val styleKey = if (useMapboxPreview) "mapbox-$mapboxStyleId" else "openfreemap"
     val mapView = remember { MapView(context) }
 
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -98,19 +117,33 @@ fun OpenDashMap(
                 isRotateGesturesEnabled = false
                 isTiltGesturesEnabled = false
                 isCompassEnabled = false
-                isAttributionEnabled = true   // OSM/OpenFreeMap attribution (keep — licensing)
+                isAttributionEnabled = true
                 isLogoEnabled = false
             }
-            m.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
-                if (destroyed) return@setStyle
-                style.addImage(RIDER_ICON, chevronBitmap())
-                style.addImage(DEST_ICON, destPinBitmap())
-                lineMgr = LineManager(mapView, m, style)
-                symbolMgr = SymbolManager(mapView, m, style).apply {
-                    iconAllowOverlap = true; iconIgnorePlacement = true
-                }
-                styleReady = true
+        }
+    }
+
+    LaunchedEffect(map, styleKey) {
+        if (destroyed) return@LaunchedEffect
+        val m = map ?: return@LaunchedEffect
+        styleReady = false
+        lineMgr = null
+        symbolMgr = null
+        val builder = if (useMapboxPreview) {
+            Style.Builder().fromJson(mapboxRasterStyleJson(BuildConfig.MAPBOX_ACCESS_TOKEN, mapboxStyleId))
+        } else {
+            Style.Builder().fromUri(STYLE_URL)
+        }
+        m.setStyle(builder) { style ->
+            if (destroyed) return@setStyle
+            style.addImage(RIDER_ICON, chevronBitmap())
+            style.addImage(DEST_ICON, destPinBitmap())
+            lineMgr = LineManager(mapView, m, style)
+            symbolMgr = SymbolManager(mapView, m, style).apply {
+                iconAllowOverlap = true
+                iconIgnorePlacement = true
             }
+            styleReady = true
         }
     }
 
@@ -163,7 +196,34 @@ fun OpenDashMap(
     AndroidView(factory = { mapView }, modifier = modifier)
 }
 
-/** Google-style blue chevron-in-a-circle, pointing "up" (rotated to heading by the symbol). */
+private fun mapboxRasterStyleJson(token: String, styleId: String): String {
+    val safeToken = token.replace("\\", "\\\\").replace("\"", "\\\"")
+    return """
+        {
+          "version": 8,
+          "name": "OpenDash Mapbox Navigation",
+          "sources": {
+            "mapbox-navigation": {
+              "type": "raster",
+              "tiles": [
+                "https://api.mapbox.com/styles/v1/mapbox/$styleId/tiles/512/{z}/{x}/{y}?access_token=$safeToken"
+              ],
+              "tileSize": 512,
+              "attribution": "Map data © OpenStreetMap contributors, Imagery © Mapbox"
+            }
+          },
+          "layers": [
+            {
+              "id": "mapbox-navigation",
+              "type": "raster",
+              "source": "mapbox-navigation"
+            }
+          ]
+        }
+    """.trimIndent()
+}
+
+/** Blue chevron-in-a-circle, pointing "up" (rotated to heading by the symbol). */
 private fun chevronBitmap(): Bitmap {
     val s = 84
     val bmp = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)

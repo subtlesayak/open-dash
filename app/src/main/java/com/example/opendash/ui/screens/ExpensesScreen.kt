@@ -113,7 +113,7 @@ fun ExpensesScreen(vm: GarageViewModel = viewModel()) {
 
             OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column {
+                    Column(Modifier.weight(1f)) {
                         Text("Total", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                         Text(formatCurrencyAmount(total, currency), color = MaterialTheme.colorScheme.primary, fontSize = 30.sp, fontWeight = FontWeight.SemiBold, fontFamily = GeistMonoFamily)
                     }
@@ -121,15 +121,7 @@ fun ExpensesScreen(vm: GarageViewModel = viewModel()) {
                         periods = periods,
                         selected = selectedPeriod,
                         onSelect = { selectedPeriod = it },
-                        modifier = Modifier.weight(1f),
-                    )
-                    OpenDashBtn(
-                        "Share",
-                        onClick = { showShare = true },
-                        icon = OpenDashIcons.Share,
-                        variant = BtnVariant.Ghost,
-                        size = BtnSize.Sm,
-                        enabled = shown.isNotEmpty(),
+                        modifier = Modifier.width(156.dp),
                     )
                 }
             }
@@ -465,14 +457,6 @@ private fun AddExpenseScreenDialog(
                     minLines = 2,
                 )
                 Text("${description.length}/500", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, modifier = Modifier.align(Alignment.End).padding(top = 2.dp))
-                OpenDashBtn(
-                    "Attach bill",
-                    onClick = { },
-                    icon = OpenDashIcons.Plus,
-                    variant = BtnVariant.Ghost,
-                    size = BtnSize.Sm,
-                    modifier = Modifier.padding(top = 10.dp),
-                )
             }
         },
     )

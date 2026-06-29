@@ -13,8 +13,7 @@ import com.google.firebase.FirebaseApp
  */
 object FirebaseGate {
     fun isConfigured(context: Context): Boolean =
-        runCatching { FirebaseApp.getApps(context.applicationContext).isNotEmpty() }
-            .getOrDefault(false)
+        runCatching { FirebaseApp.getApps(context).isNotEmpty() }.getOrDefault(false)
 
     fun canUseGoogleSignIn(context: Context): Boolean =
         isConfigured(context) && BuildConfig.GOOGLE_WEB_CLIENT_ID.isNotBlank()

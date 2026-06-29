@@ -38,12 +38,14 @@ class DashIdleRenderer {
         horizontalBias: Float,
         verticalBias: Float,
         fit: DashWallpaperFit,
+        preserveRpmArc: Boolean = false,
     ) {
         canvas.drawRect(0f, 0f, DashEncoder.WIDTH.toFloat(), DashEncoder.HEIGHT.toFloat(), bgPaint)
+        val target = if (preserveRpmArc) analogLowerDisplayRect() else fullFrameRect()
         when (kind) {
-            DashWallpaperKind.GIF -> drawGif(canvas, wallpaperPath, horizontalBias, verticalBias, fit)
-            DashWallpaperKind.VIDEO -> drawVideo(canvas, wallpaperPath, horizontalBias, verticalBias, fit)
-            else -> loadBitmap(wallpaperPath)?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+            DashWallpaperKind.GIF -> drawGif(canvas, wallpaperPath, horizontalBias, verticalBias, fit, target)
+            DashWallpaperKind.VIDEO -> drawVideo(canvas, wallpaperPath, horizontalBias, verticalBias, fit, target)
+            else -> loadBitmap(wallpaperPath)?.let { drawBitmap(canvas, it, horizontalBias, verticalBias, fit, target) }
         }
     }
 
@@ -77,7 +79,14 @@ class DashIdleRenderer {
     }
 
     @Suppress("DEPRECATION")
-    private fun drawGif(canvas: Canvas, path: String?, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit) {
+    private fun drawGif(
+        canvas: Canvas,
+        path: String?,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        target: Rect,
+    ) {
         if (path.isNullOrBlank()) return
         if (path != cachedPath || cachedKind != DashWallpaperKind.GIF) {
             clearCache()
@@ -88,10 +97,17 @@ class DashIdleRenderer {
         val movie = cachedMovie ?: return
         val duration = movie.duration().takeIf { it > 0 } ?: 1000
         movie.setTime((System.currentTimeMillis() % duration).toInt())
-        drawMovie(canvas, movie, horizontalBias, verticalBias, fit)
+        drawMovie(canvas, movie, horizontalBias, verticalBias, fit, target)
     }
 
-    private fun drawVideo(canvas: Canvas, path: String?, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit) {
+    private fun drawVideo(
+        canvas: Canvas,
+        path: String?,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        target: Rect,
+    ) {
         if (path.isNullOrBlank()) return
         if (path != cachedPath || cachedKind != DashWallpaperKind.VIDEO) {
             clearCache()
@@ -117,21 +133,34 @@ class DashIdleRenderer {
             }
         }
         cachedBitmap?.takeIf { !it.isRecycled }?.let {
-            drawBitmap(canvas, it, horizontalBias, verticalBias, fit)
+            drawBitmap(canvas, it, horizontalBias, verticalBias, fit, target)
         }
     }
 
-    private fun drawBitmap(canvas: Canvas, bitmap: Bitmap, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit) {
+    private fun drawBitmap(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        target: Rect,
+    ) {
         when (fit) {
-            DashWallpaperFit.CROP -> drawBitmapCropped(canvas, bitmap, horizontalBias, verticalBias)
-            DashWallpaperFit.FIT_HEIGHT -> drawBitmapFit(canvas, bitmap, fitHeight = true)
-            DashWallpaperFit.FIT_WIDTH -> drawBitmapFit(canvas, bitmap, fitHeight = false)
+            DashWallpaperFit.CROP -> drawBitmapCropped(canvas, bitmap, horizontalBias, verticalBias, target)
+            DashWallpaperFit.FIT_HEIGHT -> drawBitmapFit(canvas, bitmap, fitHeight = true, target)
+            DashWallpaperFit.FIT_WIDTH -> drawBitmapFit(canvas, bitmap, fitHeight = false, target)
         }
     }
 
-    private fun drawBitmapCropped(canvas: Canvas, bitmap: Bitmap, horizontalBias: Float, verticalBias: Float) {
+    private fun drawBitmapCropped(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        horizontalBias: Float,
+        verticalBias: Float,
+        target: Rect,
+    ) {
         val srcRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
-        val dstRatio = DashEncoder.WIDTH.toFloat() / DashEncoder.HEIGHT.toFloat()
+        val dstRatio = target.width().toFloat() / target.height().toFloat()
         val src = if (srcRatio > dstRatio) {
             val cropW = (bitmap.height * dstRatio).toInt().coerceAtLeast(1)
             val extra = (bitmap.width - cropW).coerceAtLeast(0)
@@ -143,25 +172,32 @@ class DashIdleRenderer {
             val top = ((extra / 2f) + (extra / 2f) * verticalBias.coerceIn(-1f, 1f)).toInt()
             Rect(0, top, bitmap.width, top + cropH)
         }
-        canvas.drawBitmap(bitmap, src, Rect(0, 0, DashEncoder.WIDTH, DashEncoder.HEIGHT), null)
+        canvas.drawBitmap(bitmap, src, target, null)
     }
 
-    private fun drawBitmapFit(canvas: Canvas, bitmap: Bitmap, fitHeight: Boolean) {
+    private fun drawBitmapFit(canvas: Canvas, bitmap: Bitmap, fitHeight: Boolean, target: Rect) {
         val scale = if (fitHeight) {
-            DashEncoder.HEIGHT.toFloat() / bitmap.height.toFloat()
+            target.height().toFloat() / bitmap.height.toFloat()
         } else {
-            DashEncoder.WIDTH.toFloat() / bitmap.width.toFloat()
+            target.width().toFloat() / bitmap.width.toFloat()
         }
         val drawW = (bitmap.width * scale).toInt().coerceAtLeast(1)
         val drawH = (bitmap.height * scale).toInt().coerceAtLeast(1)
-        val left = (DashEncoder.WIDTH - drawW) / 2
-        val top = (DashEncoder.HEIGHT - drawH) / 2
+        val left = target.left + (target.width() - drawW) / 2
+        val top = target.top + (target.height() - drawH) / 2
         canvas.drawBitmap(bitmap, null, Rect(left, top, left + drawW, top + drawH), null)
     }
 
-    private fun drawMovie(canvas: Canvas, movie: Movie, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit) {
-        val dstW = DashEncoder.WIDTH.toFloat()
-        val dstH = DashEncoder.HEIGHT.toFloat()
+    private fun drawMovie(
+        canvas: Canvas,
+        movie: Movie,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        target: Rect,
+    ) {
+        val dstW = target.width().toFloat()
+        val dstH = target.height().toFloat()
         val scale = when (fit) {
             DashWallpaperFit.CROP -> maxOf(dstW / movie.width(), dstH / movie.height())
             DashWallpaperFit.FIT_HEIGHT -> dstH / movie.height()
@@ -182,7 +218,8 @@ class DashIdleRenderer {
             -extraY / 2f
         }
         val save = canvas.save()
-        canvas.translate(left, top)
+        canvas.clipRect(target)
+        canvas.translate(target.left + left, target.top + top)
         canvas.scale(scale, scale)
         movie.draw(canvas, 0f, 0f)
         canvas.restoreToCount(save)
@@ -197,4 +234,15 @@ class DashIdleRenderer {
         cachedVideoDurationMs = 0L
         lastVideoFrameDecodeAtMs = 0L
     }
+
+    private fun fullFrameRect(): Rect =
+        Rect(0, 0, DashEncoder.WIDTH, DashEncoder.HEIGHT)
+
+    private fun analogLowerDisplayRect(): Rect =
+        Rect(
+            (DashEncoder.WIDTH * 0.09f).toInt(),
+            (DashEncoder.HEIGHT * 0.64f).toInt(),
+            (DashEncoder.WIDTH * 0.96f).toInt(),
+            (DashEncoder.HEIGHT * 0.98f).toInt(),
+        )
 }

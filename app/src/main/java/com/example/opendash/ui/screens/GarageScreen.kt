@@ -58,8 +58,6 @@ private fun dueText(row: MaintRow): String {
 
 @Composable
 fun GarageScreen(
-    tab: String,
-    onTabChange: (String) -> Unit,
     vm: GarageViewModel = viewModel(),
 ) {
     val ui by vm.ui.collectAsState()

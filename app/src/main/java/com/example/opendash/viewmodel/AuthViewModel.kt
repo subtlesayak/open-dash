@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.opendash.data.FirebaseGate
 import com.example.opendash.data.SyncRepository
+import com.example.opendash.util.CrashReporter
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -78,14 +79,15 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                 sync.pushProfileSettings()
             }.onSuccess {
                 _state.update { it.copy(loading = false, error = null, syncStatus = "Sync active") }
-            }.onFailure { e ->
+            }.onFailure { error ->
                 _state.update {
                     it.copy(
                         loading = false,
-                        error = e.message ?: "Sign-in failed",
+                        error = error.message ?: "Google sign-in failed",
                         syncStatus = "Sign-in failed",
                     )
                 }
+                CrashReporter.recordNonFatal("auth", "google_sign_in_failed", error)
             }
         }
     }
@@ -110,6 +112,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
                         syncStatus = "Sync failed",
                     )
                 }
+                CrashReporter.recordNonFatal("sync", "manual_sync_failed", error)
             }
         }
     }
@@ -117,6 +120,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
     fun signOut() {
         sync.stopSync()
         auth?.signOut()
+        CrashReporter.setUser(null, null)
         _state.update {
             it.copy(
                 isSignedIn = false,
@@ -138,6 +142,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun applyUser(user: FirebaseUser?) {
         if (user == null) {
+            CrashReporter.setUser(null, null)
             _state.update {
                 it.copy(
                     isSignedIn = false,
@@ -152,6 +157,7 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
             }
             return
         }
+        CrashReporter.setUser(user.uid, user.email)
         sync.startSync()
         _state.update {
             it.copy(

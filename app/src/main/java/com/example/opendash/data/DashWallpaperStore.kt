@@ -47,6 +47,7 @@ data class DashWallpaperInfo(
     val horizontalBias: Float,
     val verticalBias: Float,
     val fit: DashWallpaperFit,
+    val preserveRpmArc: Boolean,
 )
 
 data class DashWallpaperSlotSettings(
@@ -55,6 +56,7 @@ data class DashWallpaperSlotSettings(
     val horizontalBias: Float,
     val verticalBias: Float,
     val fit: DashWallpaperFit,
+    val preserveRpmArc: Boolean,
 )
 
 data class DashWallpaperSettingsSnapshot(
@@ -90,6 +92,7 @@ class DashWallpaperStore(private val context: Context) {
                     horizontalBias = it.horizontalBias,
                     verticalBias = it.verticalBias,
                     fit = it.fit,
+                    preserveRpmArc = it.preserveRpmArc,
                 )
             },
         )
@@ -105,6 +108,7 @@ class DashWallpaperStore(private val context: Context) {
                 .putFloat("crop_x_${slot.slot}", slot.horizontalBias)
                 .putFloat("crop_y_${slot.slot}", slot.verticalBias)
                 .putString("fit_${slot.slot}", slot.fit.name)
+                .putBoolean("preserve_rpm_arc_${slot.slot}", slot.preserveRpmArc)
         }
         editor.apply()
     }
@@ -124,17 +128,20 @@ class DashWallpaperStore(private val context: Context) {
         horizontalBias: Float,
         verticalBias: Float,
         fit: DashWallpaperFit,
+        preserveRpmArc: Boolean,
     ): DashWallpaperInfo? {
         val current = currentInfo() ?: return null
         prefs.edit()
             .putFloat("crop_x_${current.slot}", horizontalBias)
             .putFloat("crop_y_${current.slot}", verticalBias)
             .putString("fit_${current.slot}", fit.name)
+            .putBoolean("preserve_rpm_arc_${current.slot}", preserveRpmArc)
             .apply()
         return current.copy(
             horizontalBias = horizontalBias,
             verticalBias = verticalBias,
             fit = fit,
+            preserveRpmArc = preserveRpmArc,
         )
     }
 
@@ -157,32 +164,47 @@ class DashWallpaperStore(private val context: Context) {
         horizontalBias: Float = 0f,
         verticalBias: Float = 0f,
         fit: DashWallpaperFit = DashWallpaperFit.CROP,
+        preserveRpmArc: Boolean = false,
     ): String {
         val slot = firstEmptySlot() ?: (currentInfo()?.slot ?: 0)
-        return saveFromUriToSlot(slot, uri, horizontalBias, verticalBias, fit)
+        return saveFromUriToSlot(slot, uri, horizontalBias, verticalBias, fit, preserveRpmArc)
     }
 
     fun saveManyFromUris(uris: List<Uri>) {
         var replaceSlot = currentInfo()?.slot ?: 0
         uris.take(DashWallpaperPaths.MAX_SLOTS).forEach { uri ->
             val slot = firstEmptySlot() ?: replaceSlot
-            saveFromUriToSlot(slot, uri, 0f, 0f, DashWallpaperFit.CROP)
+            saveFromUriToSlot(slot, uri, 0f, 0f, DashWallpaperFit.CROP, preserveRpmArc = false)
             replaceSlot = (slot + 1) % DashWallpaperPaths.MAX_SLOTS
         }
     }
 
-    private fun saveFromUriToSlot(slot: Int, uri: Uri, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit): String {
+    private fun saveFromUriToSlot(
+        slot: Int,
+        uri: Uri,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        preserveRpmArc: Boolean,
+    ): String {
         val mime = context.contentResolver.getType(uri).orEmpty().lowercase(Locale.US)
         return when {
             mime == "image/gif" || uri.toString().lowercase(Locale.US).endsWith(".gif") ->
-                saveSource(slot, uri, DashWallpaperKind.GIF, "gif", horizontalBias, verticalBias, fit)
+                saveSource(slot, uri, DashWallpaperKind.GIF, "gif", horizontalBias, verticalBias, fit, preserveRpmArc)
             mime.startsWith("video/") ->
-                saveSource(slot, uri, DashWallpaperKind.VIDEO, extensionForMime(mime), horizontalBias, verticalBias, fit)
-            else -> saveStillImage(slot, uri, horizontalBias, verticalBias, fit)
+                saveSource(slot, uri, DashWallpaperKind.VIDEO, extensionForMime(mime), horizontalBias, verticalBias, fit, preserveRpmArc)
+            else -> saveStillImage(slot, uri, horizontalBias, verticalBias, fit, preserveRpmArc)
         }
     }
 
-    private fun saveStillImage(slot: Int, uri: Uri, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit): String {
+    private fun saveStillImage(
+        slot: Int,
+        uri: Uri,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        preserveRpmArc: Boolean,
+    ): String {
         val source = decode(uri)
         val rendered = renderToDash(source, DashEncoder.WIDTH, DashEncoder.HEIGHT, horizontalBias, verticalBias, fit)
         if (rendered !== source) source.recycle()
@@ -194,7 +216,7 @@ class DashWallpaperStore(private val context: Context) {
             rendered.compress(Bitmap.CompressFormat.PNG, 100, stream)
         }
         if (!rendered.isRecycled) rendered.recycle()
-        persist(slot, out.absolutePath, DashWallpaperKind.IMAGE, horizontalBias, verticalBias, fit)
+        persist(slot, out.absolutePath, DashWallpaperKind.IMAGE, horizontalBias, verticalBias, fit, preserveRpmArc)
         return out.absolutePath
     }
 
@@ -206,6 +228,7 @@ class DashWallpaperStore(private val context: Context) {
         horizontalBias: Float,
         verticalBias: Float,
         fit: DashWallpaperFit,
+        preserveRpmArc: Boolean,
     ): String {
         deleteSlot(slot)
         val out = DashWallpaperPaths.sourceFileIn(context.filesDir, slot, extension)
@@ -214,11 +237,19 @@ class DashWallpaperStore(private val context: Context) {
             requireNotNull(input) { "Unable to open wallpaper media" }
             out.outputStream().use { output -> input.copyTo(output) }
         }
-        persist(slot, out.absolutePath, kind, horizontalBias, verticalBias, fit)
+        persist(slot, out.absolutePath, kind, horizontalBias, verticalBias, fit, preserveRpmArc)
         return out.absolutePath
     }
 
-    private fun persist(slot: Int, path: String, kind: DashWallpaperKind, horizontalBias: Float, verticalBias: Float, fit: DashWallpaperFit) {
+    private fun persist(
+        slot: Int,
+        path: String,
+        kind: DashWallpaperKind,
+        horizontalBias: Float,
+        verticalBias: Float,
+        fit: DashWallpaperFit,
+        preserveRpmArc: Boolean,
+    ) {
         prefs.edit()
             .putInt("active_slot", slot)
             .putString("path_$slot", path)
@@ -226,6 +257,7 @@ class DashWallpaperStore(private val context: Context) {
             .putFloat("crop_x_$slot", horizontalBias)
             .putFloat("crop_y_$slot", verticalBias)
             .putString("fit_$slot", fit.name)
+            .putBoolean("preserve_rpm_arc_$slot", preserveRpmArc)
             .apply()
     }
 
@@ -247,6 +279,7 @@ class DashWallpaperStore(private val context: Context) {
             horizontalBias = prefs.getFloat("crop_x_$slot", 0f),
             verticalBias = prefs.getFloat("crop_y_$slot", 0f),
             fit = fit,
+            preserveRpmArc = prefs.getBoolean("preserve_rpm_arc_$slot", false),
         )
     }
 
@@ -269,6 +302,7 @@ class DashWallpaperStore(private val context: Context) {
             .remove("crop_x_$slot")
             .remove("crop_y_$slot")
             .remove("fit_$slot")
+            .remove("preserve_rpm_arc_$slot")
             .apply()
     }
 

@@ -1,16 +1,25 @@
 package com.example.opendash.viewmodel
 
+import android.annotation.SuppressLint
+import com.example.opendash.data.DashDisplayMode
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
+import android.provider.CallLog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.opendash.data.DashWallpaperFit
+import com.example.opendash.data.ExperimentalNavigationSettings
+import com.example.opendash.data.DashStreamQuality
+import com.example.opendash.data.DashStreamSettings
 import com.example.opendash.data.DashWallpaperKind
 import com.example.opendash.data.DashWallpaperInfo
 import com.example.opendash.data.DashWallpaperStore
+import com.example.opendash.data.VehicleStore
+import com.example.opendash.dash.DashConfig
 import com.example.opendash.dash.DashKeepAliveService
 import com.example.opendash.dash.DashSession
 import com.example.opendash.dash.DashState
@@ -33,14 +42,29 @@ import com.example.opendash.media.CallController
 import com.example.opendash.media.CallInfoProvider
 import com.example.opendash.media.IncomingCall
 import com.example.opendash.media.MediaInfoProvider
+import com.example.opendash.media.NowPlaying
+import com.example.opendash.media.RecentCall
+import com.example.opendash.navigation.provider.DashManeuverType
+import com.example.opendash.navigation.provider.DashRoute
+import com.example.opendash.navigation.provider.MapboxNavigationProvider
 import com.example.opendash.util.DebugLog
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.util.Locale
 
 enum class ConnStage { OFFLINE, WIFI, AUTH, STREAMING, ERROR }
 enum class GpsStatus { GOOD, WEAK, LOST }
+
+private enum class PhoneMenuMode { CATEGORIES, CONTACTS, CALLING }
+
+private enum class PhoneCallCategory(val label: String) {
+    MISSED("Missed Calls"),
+    RECEIVED("Received Calls"),
+    DIALED("Dialed Calls"),
+    FAVORITES("Favorites"),
+}
 
 data class DashUiState(
     val stage: ConnStage = ConnStage.OFFLINE,
@@ -56,6 +80,7 @@ data class DashUiState(
     val maneuver: String? = null,
     val hasGps: Boolean = false,
     val gpsStatus: GpsStatus = GpsStatus.LOST,
+    val locationServicesEnabled: Boolean = true,
     val hasRoute: Boolean = false,
     val offRoute: Boolean = false,
     val headingUp: Boolean = true,
@@ -72,6 +97,7 @@ data class DashUiState(
     val wallpaperFit: DashWallpaperFit = DashWallpaperFit.CROP,
     val wallpaperCropX: Float = 0f,
     val wallpaperCropY: Float = 0f,
+    val wallpaperPreserveRpmArc: Boolean = false,
     val wallpaperGalleryCount: Int = 0,
     val wallpaperGalleryIndex: Int = 0,
     val wallpaperSaving: Boolean = false,
@@ -85,7 +111,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     private val session     = DashSession(viewModelScope)
     private val wifiManager = DashWifiManager(app, viewModelScope)
-    private val dashConfig  = com.example.opendash.dash.DashConfig.get(app)
+    private val dashConfig  = DashConfig.get(app)
     private val voice        = com.example.opendash.dash.nav.VoiceManager.get(app)
     private val repo         = com.example.opendash.data.SyncRepository.get(app)
     private val recorder     = com.example.opendash.data.RideRecorder()
@@ -93,6 +119,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private val idleRenderer = DashIdleRenderer()
     private var recordJob: Job? = null
     private val tiles       = TileProvider(app, viewModelScope)
+    private val mapboxNavigationProvider = MapboxNavigationProvider(app, viewModelScope)
     private val location    = LocationTracker(app)
     private val mapRenderer = MapRenderer(tiles)
     private val powerManager = app.getSystemService(Application.POWER_SERVICE) as PowerManager
@@ -102,6 +129,24 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private var encoder: DashEncoder? = null
     private var streamJob: Job? = null
     private var mediaObserveJob: Job? = null
+    private var mediaCardJob: Job? = null
+    @Volatile private var mediaCardVisible = false
+    @Volatile private var mediaCardMessage = ""
+    @Volatile private var currentMedia: NowPlaying? = null
+    @Volatile private var mediaControlUntilMs = 0L
+    @Volatile private var activeCallStartedAtMs = 0L
+    @Volatile private var activeCallIdentity = ""
+    private var phoneCardJob: Job? = null
+    @Volatile private var phoneCardVisible = false
+    @Volatile private var phoneCardTitle = ""
+    @Volatile private var phoneCardLabel = ""
+    @Volatile private var phoneCardSubtitle = ""
+    @Volatile private var phoneCardRows: List<String> = emptyList()
+    @Volatile private var phoneMenuMode = PhoneMenuMode.CATEGORIES
+    private var phoneRecentCalls: List<RecentCall> = emptyList()
+    private var phoneAllCalls: List<RecentCall> = emptyList()
+    private var phoneCategoryIndex = 0
+    private var phoneRecentIndex = 0
 
     private var userWantsConnection = false
 
@@ -139,6 +184,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var frameRiderLat: Double? = null
     @Volatile private var frameRiderLng: Double? = null
     @Volatile private var camMoving = false   // drives the dynamic frame rate
+    @Volatile private var streamQuality = DashStreamQuality.EXPERIMENTAL
 
     // Stable ETA (Google-like): the raw estimate jitters with instantaneous speed, so we
     // smooth it and only recompute the absolute arrival clock occasionally — no per-frame churn.
@@ -151,6 +197,8 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     @Volatile private var offRouteSince = 0L
     @Volatile private var lastRerouteAt = 0L
     @Volatile private var rerouting = false
+    @Volatile private var routeRequestInFlight = false
+    @Volatile private var lastRouteRequestAt = 0L
 
     // Map-matched rider position: snapped onto the route while on it (kills the GPS
     // lane/road jitter), raw GPS when genuinely off-route. Drives the marker + camera.
@@ -167,10 +215,16 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         private const val MANUAL_IDLE_MS = 8_000L
         private const val FORCE_REDRAW_MS = 2_000L
         private const val SMOOTH_TAU = 0.28      // camera smoothing time constant (s)
-        private const val FPS_MOVING = 4
-        private const val FPS_IDLE = 2
+        private const val BTN_JOYSTICK_RIGHT = 0x13
+        private const val BTN_JOYSTICK_LEFT = 0x14
+        private const val BTN_JOYSTICK_DOWN = 0x15
+        private const val BTN_JOYSTICK_UP = 0x16
+        private const val BTN_JOYSTICK_CLICK = 0x18
         private const val BTN_CALL_ANSWER = 0x06
         private const val BTN_CALL_REJECT = 0x07
+        private const val BTN_PHONE_RECENTS = 0x05
+        private const val BTN_PHONE_SELECT = BTN_JOYSTICK_CLICK
+        private const val BTN_NATIVE_SELECT = 0x22
         private const val BTN_MAP_ZOOM_IN = 0x14
         private const val BTN_MAP_ZOOM_OUT = 0x13
         private const val BTN_MEDIA_NEXT = 0x09
@@ -192,12 +246,35 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     init {
+        ExperimentalNavigationSettings.init(app)
+        DashStreamSettings.init(app)
+        streamQuality = DashStreamSettings.current()
         // Reflect the rider's stored dash WiFi config (SSID may be blank until discovered).
         _ui.value = _ui.value.copy(
             ssid = dashConfig.ssid,
             wifiPassword = dashConfig.password,
+            locationServicesEnabled = location.refreshEnabled(),
         )
         publishWallpaper(wallpaperStore.currentInfo())
+
+        viewModelScope.launch {
+            DashStreamSettings.quality.collect { quality ->
+                streamQuality = quality
+                lastSignature = ""
+            }
+        }
+
+        viewModelScope.launch {
+            VehicleStore.activeVehicleId.collect {
+                if (!userWantsConnection) {
+                    _ui.value = _ui.value.copy(
+                        ssid = dashConfig.ssid,
+                        wifiPassword = dashConfig.password,
+                        pendingPairingSsid = null,
+                    )
+                }
+            }
+        }
 
         // When we connect to a previously-unknown dash by prefix, Android can reveal the
         // exact SSID. Do not persist it until the rider confirms the pairing.
@@ -209,6 +286,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             wifiManager.state.collect { ws ->
                 when (ws.status) {
                     WifiConnStatus.CONNECTED -> {
+                        _ui.value = _ui.value.copy(errorMessage = null)
                         refreshStage()
                         if (userWantsConnection &&
                             session.state.value in listOf(DashState.IDLE, DashState.ERROR)
@@ -224,7 +302,14 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     WifiConnStatus.ERROR -> { _ui.value = _ui.value.copy(errorMessage = ws.error); refreshStage() }
-                    else -> refreshStage()
+                    WifiConnStatus.REQUESTING -> {
+                        _ui.value = _ui.value.copy(errorMessage = ws.error)
+                        refreshStage()
+                    }
+                    else -> {
+                        _ui.value = _ui.value.copy(errorMessage = null)
+                        refreshStage()
+                    }
                 }
             }
         }
@@ -237,50 +322,88 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         session.onError = { msg -> _ui.value = _ui.value.copy(errorMessage = msg); refreshStage() }
+        session.onAmbientLight = { ambient ->
+            DashDisplayMode.updateFromDashAmbient(ambient)
+        }
         session.onButton = { btn ->
             val code = btn.toInt() and 0xFF
             val call = CallInfoProvider.incomingCall.value
-            val mediaActive = mediaInfo.nowPlaying.value != null
+            val mediaControlActive = mediaCardVisible || System.currentTimeMillis() < mediaControlUntilMs
             val label = when {
-                call?.incoming == true && code == BTN_CALL_ANSWER -> {
+                call != null && isCallVolumeUpButton(code) -> {
+                    callController.volumeUp()
+                    "Call volume up"
+                }
+                call != null && isCallVolumeDownButton(code) -> {
+                    callController.volumeDown()
+                    "Call volume down"
+                }
+                call?.incoming == true && isCallAnswerButton(code) -> {
                     answerCall(call)
                     "Call answered"
                 }
-                call != null && code == BTN_CALL_REJECT -> {
+                call != null && isCallRejectButton(code) -> {
                     endCall(call)
                     if (call.incoming) "Call rejected" else "Call ended"
                 }
-                isIdleWallpaperMode() && code == BTN_MEDIA_NEXT -> {
+                phoneCardVisible && code == BTN_PHONE_SELECT -> {
+                    selectPhoneCardItem()
+                }
+                phoneCardVisible && isNextContactButton(code) -> {
+                    stepPhoneCard(1)
+                }
+                phoneCardVisible && isPreviousContactButton(code) -> {
+                    stepPhoneCard(-1)
+                }
+                phoneCardVisible && isClosePhoneCardButton(code) -> {
+                    backOrClosePhoneCard()
+                }
+                code == BTN_PHONE_RECENTS -> {
+                    showPhoneMenuOnDash()
+                }
+                isMediaPlayButton(code) -> {
+                    requestMediaPlay()
+                    "Play media"
+                }
+                isIdleWallpaperMode() && !mediaControlActive && isNextWallpaperButton(code) -> {
                     cycleWallpaper(1)
                     "Next wallpaper"
                 }
-                isIdleWallpaperMode() && code == BTN_MEDIA_PREVIOUS -> {
+                isIdleWallpaperMode() && !mediaControlActive && isPreviousWallpaperButton(code) -> {
                     cycleWallpaper(-1)
                     "Previous wallpaper"
                 }
-                !isIdleWallpaperMode() && mediaActive && code == BTN_MEDIA_NEXT -> {
+                mediaControlActive && isMediaNextButton(code) -> {
                     mediaInfo.skipNext()
+                    keepMediaControlMode()
+                    showMediaCard("Next track")
                     "Next track"
                 }
-                !isIdleWallpaperMode() && mediaActive && code == BTN_MEDIA_PREVIOUS -> {
+                mediaControlActive && isMediaPreviousButton(code) -> {
                     mediaInfo.skipPrevious()
+                    keepMediaControlMode()
+                    showMediaCard("Previous track")
                     "Previous track"
                 }
-                code == BTN_MAP_ZOOM_IN || (!mediaActive && code == BTN_MEDIA_NEXT) -> {
+                mediaControlActive && isMediaVolumeUpButton(code) -> {
+                    mediaInfo.volumeUp()
+                    keepMediaControlMode()
+                    showMediaCard("Volume up")
+                    "Volume up"
+                }
+                mediaControlActive && isMediaVolumeDownButton(code) -> {
+                    mediaInfo.volumeDown()
+                    keepMediaControlMode()
+                    showMediaCard("Volume down")
+                    "Volume down"
+                }
+                code == BTN_MAP_ZOOM_IN || (!mediaControlActive && code == BTN_MEDIA_NEXT) -> {
                     zoomIn()
                     "Zoom in"
                 }
-                code == BTN_MAP_ZOOM_OUT || (!mediaActive && code == BTN_MEDIA_PREVIOUS) -> {
+                code == BTN_MAP_ZOOM_OUT || (!mediaControlActive && code == BTN_MEDIA_PREVIOUS) -> {
                     zoomOut()
                     "Zoom out"
-                }
-                isIdleWallpaperMode() && isNextWallpaperButton(code) -> {
-                    cycleWallpaper(1)
-                    "Next wallpaper"
-                }
-                isIdleWallpaperMode() && isPreviousWallpaperButton(code) -> {
-                    cycleWallpaper(-1)
-                    "Previous wallpaper"
                 }
                 else -> "code 0x${code.toString(16).uppercase()}"
             }
@@ -307,6 +430,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         userWantsConnection = true
         _ui.value = _ui.value.copy(errorMessage = null)
         DashKeepAliveService.start(getApplication())
+        refreshLocationServices()
         location.start()
         startRecording()
 
@@ -375,11 +499,43 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         _ui.value = _ui.value.copy(wifiPassword = p)
         pushProfileSettings()
     }
+    fun saveManualDashCode(rawCode: String): Boolean {
+        val ssid = normalizeManualDashSsid(rawCode)
+        if (ssid.length <= DashConfig.DEFAULT_PREFIX.length) {
+            _ui.value = _ui.value.copy(errorMessage = "Enter a valid RE code")
+            refreshStage()
+            return false
+        }
+        dashConfig.ssid = ssid
+        _ui.value = _ui.value.copy(
+            ssid = ssid,
+            wifiPassword = dashConfig.password,
+            pendingPairingSsid = null,
+            errorMessage = null,
+        )
+        pushProfileSettings()
+        if (userWantsConnection &&
+            wifiManager.network != null &&
+            session.state.value in listOf(DashState.IDLE, DashState.ERROR)
+        ) {
+            connectSessionWhenSsidResolved()
+        }
+        return true
+    }
+
+    fun placeCall(number: String): Boolean {
+        val ok = callController.placeCall(number)
+        _ui.value = _ui.value.copy(
+            lastButton = if (ok) "Calling" else "Call failed",
+            errorMessage = if (ok) _ui.value.errorMessage else "Could not place call",
+        )
+        return ok
+    }
+
     /** Forget the paired dash so the next connect rediscovers any RE_* dash by prefix. */
     fun forgetDash() {
         dashConfig.forgetDash()
         _ui.value = _ui.value.copy(ssid = "", pendingPairingSsid = null)
-        pushProfileSettings()
     }
 
     fun confirmDiscoveredDash() {
@@ -413,6 +569,13 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             _ui.value = _ui.value.copy(ssid = ssid, pendingPairingSsid = null)
             return
         }
+        if (userWantsConnection && wifiManager.state.value.status == WifiConnStatus.CONNECTED) {
+            dashConfig.ssid = ssid
+            _ui.value = _ui.value.copy(ssid = ssid, pendingPairingSsid = null, errorMessage = null)
+            pushProfileSettings()
+            connectSessionWhenSsidResolved()
+            return
+        }
         _ui.value = _ui.value.copy(
             ssid = ssid,
             pendingPairingSsid = ssid,
@@ -421,12 +584,27 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun connectSessionWhenSsidResolved() {
-        val ssid = _ui.value.ssid.trim()
+        val ssid = listOf(_ui.value.ssid, wifiManager.state.value.ssid, dashConfig.ssid)
+            .map { it.trim() }
+            .firstOrNull { it.isNotBlank() && it != dashConfig.ssidPrefix }
+            .orEmpty()
         if (ssid.isBlank() || ssid == dashConfig.ssidPrefix) {
             DebugLog.w("DashViewModel") { "Session connect deferred until exact dash SSID is resolved" }
             return
         }
+        if (_ui.value.ssid != ssid) _ui.value = _ui.value.copy(ssid = ssid)
         session.connect(ssid, wifiManager.network)
+    }
+
+    private fun normalizeManualDashSsid(rawCode: String): String {
+        val compact = rawCode.trim().replace(Regex("\\s+"), "")
+        if (compact.isBlank()) return ""
+        val upper = compact.uppercase(Locale.US)
+        return when {
+            upper.startsWith(DashConfig.DEFAULT_PREFIX) -> upper
+            upper.startsWith("RE") -> DashConfig.DEFAULT_PREFIX + upper.removePrefix("RE").trimStart('_')
+            else -> DashConfig.DEFAULT_PREFIX + upper.trimStart('_')
+        }
     }
 
     fun setWallpaperFromUri(
@@ -434,11 +612,12 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         horizontalBias: Float = 0f,
         verticalBias: Float = 0f,
         fit: DashWallpaperFit = DashWallpaperFit.CROP,
+        preserveRpmArc: Boolean = false,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             _ui.update { it.copy(wallpaperSaving = true, wallpaperError = null) }
             runCatching {
-                wallpaperStore.saveFromUri(uri, horizontalBias, verticalBias, fit)
+                wallpaperStore.saveFromUri(uri, horizontalBias, verticalBias, fit, preserveRpmArc)
                 wallpaperStore.currentInfo()
             }.onSuccess { info ->
                     invalidateWallpaperFrame()
@@ -485,11 +664,12 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         horizontalBias: Float,
         verticalBias: Float,
         fit: DashWallpaperFit,
+        preserveRpmArc: Boolean = _ui.value.wallpaperPreserveRpmArc,
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             _ui.update { it.copy(wallpaperSaving = true, wallpaperError = null) }
             runCatching {
-                wallpaperStore.updateCurrentOptions(horizontalBias, verticalBias, fit)
+                wallpaperStore.updateCurrentOptions(horizontalBias, verticalBias, fit, preserveRpmArc)
                     ?: error("No wallpaper selected")
             }.onSuccess { info ->
                 invalidateWallpaperFrame()
@@ -530,7 +710,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun pushProfileSettings() {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { repo.pushProfileSettings() }
+            repo.pushProfileSettings()
         }
     }
 
@@ -555,6 +735,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 wallpaperFit = info?.fit ?: DashWallpaperFit.CROP,
                 wallpaperCropX = info?.horizontalBias ?: 0f,
                 wallpaperCropY = info?.verticalBias ?: 0f,
+                wallpaperPreserveRpmArc = info?.preserveRpmArc ?: false,
                 wallpaperGalleryCount = gallery.size,
                 wallpaperGalleryIndex = if (index >= 0) index else 0,
                 wallpaperSaving = saving,
@@ -573,6 +754,42 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     private fun isPreviousWallpaperButton(code: Int): Boolean =
         code == 0x05 || code == 0x07 || code == 0x0A
 
+    private fun isCallAnswerButton(code: Int): Boolean =
+        code == BTN_JOYSTICK_LEFT || code == BTN_MEDIA_PREVIOUS
+
+    private fun isCallRejectButton(code: Int): Boolean =
+        code == BTN_JOYSTICK_RIGHT || code == BTN_MEDIA_NEXT
+
+    private fun isCallVolumeUpButton(code: Int): Boolean =
+        code == BTN_JOYSTICK_UP || code == BTN_CALL_ANSWER
+
+    private fun isCallVolumeDownButton(code: Int): Boolean =
+        code == BTN_JOYSTICK_DOWN || code == BTN_CALL_REJECT
+
+    private fun isNextContactButton(code: Int): Boolean =
+        code == BTN_MEDIA_NEXT || code == BTN_JOYSTICK_RIGHT || code == BTN_JOYSTICK_DOWN || code == BTN_CALL_REJECT
+
+    private fun isPreviousContactButton(code: Int): Boolean =
+        code == BTN_MEDIA_PREVIOUS || code == BTN_JOYSTICK_LEFT || code == BTN_JOYSTICK_UP || code == BTN_CALL_ANSWER
+
+    private fun isClosePhoneCardButton(code: Int): Boolean =
+        code == BTN_PHONE_RECENTS
+
+    private fun isMediaPlayButton(code: Int): Boolean =
+        code == BTN_NATIVE_SELECT || code == BTN_JOYSTICK_CLICK
+
+    private fun isMediaNextButton(code: Int): Boolean =
+        code == BTN_MEDIA_NEXT || code == BTN_JOYSTICK_RIGHT
+
+    private fun isMediaPreviousButton(code: Int): Boolean =
+        code == BTN_MEDIA_PREVIOUS || code == BTN_JOYSTICK_LEFT
+
+    private fun isMediaVolumeUpButton(code: Int): Boolean =
+        code == BTN_CALL_ANSWER || code == BTN_JOYSTICK_UP
+
+    private fun isMediaVolumeDownButton(code: Int): Boolean =
+        code == BTN_CALL_REJECT || code == BTN_JOYSTICK_DOWN
+
     // ── Destination + routing ───────────────────────────────────────────────
 
     fun prefetchTiles(lat: Double, lng: Double) {
@@ -581,6 +798,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setDestination(name: String, lat: Double?, lng: Double?) {
+        refreshLocationServices()
         _ui.value = _ui.value.copy(
             destinationName = name, hasRoute = false,
             destLatLng = if (lat != null && lng != null) lat to lng else null,
@@ -589,6 +807,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         destLat = lat
         destLng = lng
         route = null
+        lastRouteRequestAt = 0L
         progressM = 0.0
         smoothEtaSec = 0.0; etaArrivalMs = 0L   // fresh ETA for the new route
         voice.resetTrip()   // fresh announcements for the new route
@@ -632,15 +851,35 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             DebugLog.w("DashViewModel") { "fetchRoute: no origin location yet" }
             return
         }
+        if (routeRequestInFlight) return
+        routeRequestInFlight = true
+        lastRouteRequestAt = System.currentTimeMillis()
         viewModelScope.launch {
-            val r = Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(destLatV, destLngV))
-            if (r != null) {
-                route = r
-                tiles.prefetchRoute(r.geometry)
-                _ui.value = _ui.value.copy(hasRoute = true, routePoints = r.geometry)
-                DebugLog.i("DashViewModel") { "Route ready: ${r.geometry.size} pts, ${r.totalMeters.toInt()} m" }
-            } else {
-                DebugLog.w("DashViewModel") { "Router returned null" }
+            try {
+                val r = if (ExperimentalNavigationSettings.isMapboxNavigationEnabled()) {
+                    runCatching {
+                        mapboxNavigationProvider.requestRoute(
+                            originLat = loc.latitude,
+                            originLng = loc.longitude,
+                            destinationLat = destLatV,
+                            destinationLng = destLngV,
+                        ).toLegacyRoute()
+                    }.onFailure {
+                        DebugLog.w("DashViewModel") { "Mapbox route failed, falling back: ${it.message}" }
+                    }.getOrNull() ?: Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(destLatV, destLngV))
+                } else {
+                    Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(destLatV, destLngV))
+                }
+                if (r != null) {
+                    route = r
+                    tiles.prefetchRoute(r.geometry)
+                    _ui.value = _ui.value.copy(hasRoute = true, routePoints = r.geometry)
+                    DebugLog.i("DashViewModel") { "Route ready: ${r.geometry.size} pts, ${r.totalMeters.toInt()} m" }
+                } else {
+                    DebugLog.w("DashViewModel") { "Router returned null" }
+                }
+            } finally {
+                routeRequestInFlight = false
             }
         }
     }
@@ -657,6 +896,20 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleHeadingUp() {
         headingUp = !headingUp
         _ui.value = _ui.value.copy(headingUp = headingUp)
+    }
+
+    fun invalidateMapFrame() {
+        lastSignature = ""
+        tiles.prefetchRoute(route?.geometry ?: emptyList())
+    }
+
+    fun refreshLocationServices(): Boolean {
+        val enabled = location.refreshEnabled()
+        _ui.update { it.copy(locationServicesEnabled = enabled) }
+        if (enabled && (userWantsConnection || destLat != null || destLng != null)) {
+            location.start()
+        }
+        return enabled
     }
 
     private fun manualPan(dx: Float, dy: Float) {
@@ -679,8 +932,16 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             // frame loop's _ui writes — a plain copy() read-modify-write would drop updates.
             _ui.update { it.copy(frameCount = it.frameCount + 1) }
         }
+        fun buildEncoder(profile: DashStreamQuality): DashEncoder =
+            DashEncoder(
+                onEncodedData = onEncoded,
+                fps = profile.encoderFps,
+                bitrate = profile.bitrate,
+            ).also { it.prepare() }
+
+        var encoderProfile = streamQuality
         encoder?.release()
-        encoder = DashEncoder(onEncoded).also { it.prepare() }
+        encoder = buildEncoder(encoderProfile)
 
         frameBitmap = Bitmap.createBitmap(DashEncoder.WIDTH, DashEncoder.HEIGHT, Bitmap.Config.ARGB_8888)
         lastSignature = ""
@@ -698,8 +959,19 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             // connected, so a dead frame loop = frozen map with the connection "up".
             while (isActive && session.state.value == DashState.STREAMING) {
                 try {
+                    val activeProfile = streamQuality
+                    if (activeProfile != encoderProfile) {
+                        runCatching { encoder?.release() }
+                        encoder = runCatching { buildEncoder(activeProfile) }
+                            .onFailure { DebugLog.e("DashViewModel", { "Encoder profile switch failed" }, it) }
+                            .getOrNull()
+                        if (encoder != null) {
+                            encoderProfile = activeProfile
+                            lastSignature = ""
+                        }
+                    }
                     tick()
-                    // Push the (possibly cached) frame to the encoder at a steady 4 fps.
+                    // Push the (possibly cached) frame to the encoder at the active stream profile.
                     val bmp = frameBitmap
                     val enc = encoder
                     if (bmp != null && enc != null) {
@@ -723,15 +995,18 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                         // stream recovers. The fresh encoder re-emits SPS/PPS, which the
                         // NAL processor bundles into the next IDR for the dash decoder.
                         runCatching { encoder?.release() }
-                        encoder = runCatching { DashEncoder(onEncoded).also { it.prepare() } }
+                        encoder = runCatching { buildEncoder(streamQuality) }
                             .onFailure { DebugLog.e("DashViewModel", { "Encoder rebuild failed" }, it) }
                             .getOrNull()
+                        if (encoder != null) encoderProfile = streamQuality
                         lastSignature = "" // force a full redraw on the next tick
                         failures = 0
                     }
                 }
                 // Dynamic pacing: buttery while moving, throttled when stopped (power).
-                delay(1000L / (if (camMoving) FPS_MOVING else FPS_IDLE))
+                val pacingProfile = streamQuality
+                val frameRate = if (camMoving) pacingProfile.movingFps else pacingProfile.idleFps
+                delay(1000L / frameRate.coerceAtLeast(1))
             }
         }
     }
@@ -773,15 +1048,18 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             // "Indira Enclave" when actually at "Isha"). trackProgress is still used
             // for nav distances + off-route/reroute detection (ns.offRoute), just not
             // to move the displayed marker.
-            if (loc.speed < 0.5f) heading = ns.heading
-            val speed = if (loc.speed > 0.5f) loc.speed.toDouble() else 11.0
-            // Smooth the ETA so it doesn't flicker every second with raw speed; recompute the
-            // absolute arrival clock only every 5 s so "arrives 1:32 PM" stays steady.
-            val rawEta = ns.remainingM / speed
-            smoothEtaSec = if (smoothEtaSec <= 0.0) rawEta else smoothEtaSec + (rawEta - smoothEtaSec) * 0.08
+            if (!headingKnown) heading = if (camInit) camHdg else 0f
+            // Route-provider ETA is much more stable than instantaneous GPS speed. Speed-based
+            // ETA swings wildly while stopped or when GPS reports tiny phantom motion.
+            val rawEta = if (r.totalMeters > 0.0 && r.totalSeconds > 0.0) {
+                r.totalSeconds * (ns.remainingM / r.totalMeters).coerceIn(0.0, 1.0)
+            } else {
+                ns.remainingM / 11.0
+            }
+            smoothEtaSec = if (smoothEtaSec <= 0.0) rawEta else smoothEtaSec + (rawEta - smoothEtaSec) * 0.02
             etaSec = smoothEtaSec
             val nowMs = System.currentTimeMillis()
-            if (etaArrivalMs == 0L || nowMs - lastArrivalCalcMs > 5_000) {
+            if (etaArrivalMs == 0L || nowMs - lastArrivalCalcMs > 30_000) {
                 etaArrivalMs = nowMs + (smoothEtaSec * 1000).toLong()
                 lastArrivalCalcMs = nowMs
             }
@@ -803,6 +1081,10 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             remainingM = GeoPoint.distMeters(
                 GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng)
             )
+            val nowMs = System.currentTimeMillis()
+            if (!routeRequestInFlight && nowMs - lastRouteRequestAt > 3_000L) {
+                fetchRoute(dLat, dLng)
+            }
         }
 
         // Recompute the route if the rider has clearly left it for a few seconds.
@@ -881,6 +1163,9 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         val centerLng = if (haveTarget) camLng else 0.0
         val camHeading = if (haveTarget) camHdg else heading
 
+        val callState = CallInfoProvider.incomingCall.value
+        updateActiveCallTimer(callState)
+
         val sig = buildString {
             if (r == null && dLat == null && dLng == null) {
                 append("idle:${_ui.value.wallpaperPath}")
@@ -888,6 +1173,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 append(_ui.value.wallpaperFit)
                 append(_ui.value.wallpaperCropX)
                 append(_ui.value.wallpaperCropY)
+                append(_ui.value.wallpaperPreserveRpmArc)
                 append(_ui.value.wallpaperGalleryIndex)
                 append(wallpaperFrameRevision)
             } else {
@@ -901,7 +1187,30 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             append(if (headingUp) (camHeading * 10).toInt() else 0)
             append(remainingM?.let { (it / 100).toInt() } ?: -1) // 100 m resolution to avoid jitter
             append(if (r != null) r.geometry.size else 0)
-            append(CallInfoProvider.incomingCall.value?.takeIf { it.incoming }?.caller.orEmpty())
+            append(callState?.caller.orEmpty())
+            append(callState?.incoming)
+            if (callState?.incoming == false) {
+                append((System.currentTimeMillis() - activeCallStartedAtMs).coerceAtLeast(0L) / 1000L)
+            }
+            append(phoneCardVisible)
+            append(phoneMenuMode)
+            append(phoneCardTitle)
+            append(phoneCardLabel)
+            append(phoneCardSubtitle)
+            append(phoneCardRows.joinToString("|"))
+            append(phoneCategoryIndex)
+            append(phoneRecentIndex)
+            append(mediaCardVisible)
+            append(mediaCardMessage)
+            append(mediaControlUntilMs > System.currentTimeMillis())
+            currentMedia?.let { media ->
+                append(media.title)
+                append(media.artist)
+                append(media.album)
+                append(media.art?.width ?: 0)
+                append(media.art?.height ?: 0)
+                append(media.art?.generationId ?: 0)
+            }
         }
         val now = System.currentTimeMillis()
         if (sig != lastSignature || now - lastRedrawAt > FORCE_REDRAW_MS) {
@@ -921,15 +1230,31 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         if (!offRoute || loc == null || dLat == null || dLng == null) { offRouteSince = 0L; return }
         val now = System.currentTimeMillis()
         if (offRouteSince == 0L) offRouteSince = now
-        if (now - offRouteSince < 4_000 || now - lastRerouteAt < 12_000 || rerouting) return
+        if (now - offRouteSince < 1_200 || now - lastRerouteAt < 5_000 || rerouting) return
         lastRerouteAt = now
         rerouting = true
         DebugLog.i("DashViewModel") { "Off-route ${(now - offRouteSince) / 1000}s → rerouting" }
         viewModelScope.launch {
-            val r = Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng))
+            val r = if (ExperimentalNavigationSettings.isMapboxNavigationEnabled()) {
+                runCatching {
+                    mapboxNavigationProvider.requestRoute(
+                        originLat = loc.latitude,
+                        originLng = loc.longitude,
+                        destinationLat = dLat,
+                        destinationLng = dLng,
+                    ).toLegacyRoute()
+                }.onFailure {
+                    DebugLog.w("DashViewModel") { "Mapbox reroute failed, falling back: ${it.message}" }
+                }.getOrNull() ?: Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng))
+            } else {
+                Router.route(GeoPoint(loc.latitude, loc.longitude), GeoPoint(dLat, dLng))
+            }
             if (r != null) {
                 route = r
                 progressM = 0.0
+                smoothEtaSec = 0.0
+                etaArrivalMs = 0L
+                lastSignature = ""
                 offRouteSince = 0L
                 tiles.prefetchRoute(r.geometry)
                 _ui.value = _ui.value.copy(hasRoute = true, routePoints = r.geometry)
@@ -955,7 +1280,9 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 _ui.value.wallpaperCropX,
                 _ui.value.wallpaperCropY,
                 _ui.value.wallpaperFit,
+                _ui.value.wallpaperPreserveRpmArc,
             )
+            drawMediaOverlay(canvas, bmp.width, bmp.height)
             drawCallOverlay(canvas, bmp.width, bmp.height)
             return
         }
@@ -969,9 +1296,14 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             else       -> "$mins min"
         } else null
         // 12-hour arrival clock; hidden once arriving.
-        val etaSecondary = if (etaPrimary != null && !arriving)
-            java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date(etaArrivalMs))
-        else null
+        val etaSecondary = if (etaPrimary != null) {
+            if (arriving) {
+                "ETA now"
+            } else {
+                "ETA " + java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                    .format(java.util.Date(etaArrivalMs))
+            }
+        } else null
         val frame = MapRenderer.Frame(
             centerLat = centerLat,
             centerLng = centerLng,
@@ -988,10 +1320,9 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             route = route?.geometry ?: emptyList(),
             maneuverText = null, // turn-by-turn maneuver banner removed
             remainingText = remainingM?.let { fmtDist(it) },
-            // Top-down (heading-up) nav view. The 3D perspective tilt is DISABLED: warping
-            // flat raster tiles via setPolyToPoly stretches the baked-in map labels and
-            // skews the angle (you can't get true Google-Maps 3D without vector tiles).
-            tilt3d = false,
+            // Mild heading-up pseudo-pitch. Keep this subtle: true Google-style 3D needs
+            // vector tiles, while this dash stream renders raster tiles.
+            tilt3d = headingUp && loc != null,
             etaPrimary = etaPrimary,
             etaSecondary = etaSecondary,
             gpsWeak = gpsStatus == GpsStatus.WEAK,
@@ -999,7 +1330,83 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         )
         val canvas = Canvas(bmp)
         mapRenderer.draw(canvas, frame)
+        drawMediaOverlay(canvas, bmp.width, bmp.height)
         drawCallOverlay(canvas, bmp.width, bmp.height)
+    }
+
+    private val mediaOverlayBackground by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xDD0B0D0E.toInt()
+        }
+    }
+    private val mediaOverlayArtBackground by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x33212224
+        }
+    }
+    private val mediaOverlayTitle by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+    private val mediaOverlayText by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE7E0D3.toInt()
+            textSize = 12f
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+    private val mediaOverlayHint by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFF2A93B.toInt()
+            textSize = 10f
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+
+    private fun drawMediaOverlay(canvas: Canvas, width: Int, height: Int) {
+        val media = currentMedia
+        if (!mediaCardVisible && media == null) return
+
+        val panelWidth = width * 0.62f
+        val panelHeight = 104f
+        val left = (width - panelWidth) / 2f
+        val top = height * 0.18f
+        val right = left + panelWidth
+        val bottom = top + panelHeight
+        canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, mediaOverlayBackground)
+
+        val artSize = 54f
+        val artLeft = left + 16f
+        val artTop = top + 22f
+        val artDst = android.graphics.RectF(artLeft, artTop, artLeft + artSize, artTop + artSize)
+        val art = media?.art
+        if (art != null && !art.isRecycled && art.width > 0 && art.height > 0) {
+            val side = minOf(art.width, art.height)
+            val srcLeft = (art.width - side) / 2
+            val srcTop = (art.height - side) / 2
+            val src = android.graphics.Rect(srcLeft, srcTop, srcLeft + side, srcTop + side)
+            canvas.drawBitmap(art, src, artDst, null)
+        } else {
+            canvas.drawRoundRect(artDst, 8f, 8f, mediaOverlayArtBackground)
+            canvas.drawText("MEDIA", artLeft + 9f, artTop + 33f, mediaOverlayHint)
+        }
+
+        val textLeft = artDst.right + 14f
+        val title = media?.title?.takeIf { it.isNotBlank() } ?: "Music"
+        val artist = media?.artist?.takeIf { it.isNotBlank() } ?: mediaCardMessage.ifBlank { "Press to play" }
+        val album = media?.album?.takeIf { it.isNotBlank() } ?: mediaCardMessage
+        canvas.drawText(title.ellipsizeForDash(20), textLeft, top + 30f, mediaOverlayTitle)
+        canvas.drawText(artist.ellipsizeForDash(24), textLeft, top + 50f, mediaOverlayText)
+        if (album.isNotBlank()) {
+            canvas.drawText(album.ellipsizeForDash(24), textLeft, top + 68f, mediaOverlayText)
+        }
+        if (mediaCardMessage.isNotBlank() && media != null) {
+            canvas.drawText(mediaCardMessage.ellipsizeForDash(24), textLeft, bottom - 12f, mediaOverlayHint)
+        }
     }
 
     private val callOverlayBackground by lazy {
@@ -1022,25 +1429,196 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             textAlign = android.graphics.Paint.Align.CENTER
         }
     }
+    private val callPillTitle by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+    private val callPillLabel by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFF2A93B.toInt()
+            textSize = 9f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+    private val callPillHint by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE7E0D3.toInt()
+            textSize = 8f
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+    private val callPillRuntime by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF8DF48D.toInt()
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+    private val callPillBorder by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x88C8AA62.toInt()
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 1.2f
+        }
+    }
+    private val callAcceptButton by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF27C46B.toInt()
+            style = android.graphics.Paint.Style.FILL
+        }
+    }
+    private val callDeclineButton by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFFE94B4B.toInt()
+            style = android.graphics.Paint.Style.FILL
+        }
+    }
+    private val callButtonIcon by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 2.4f
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+    }
+    private val callOverlayRow by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE
+            textSize = 13f
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+    }
+    private val callOverlaySelected by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x55C8AA62
+        }
+    }
+    private val callOverlayDivider by lazy {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x88C8AA62.toInt()
+            strokeWidth = 1f
+        }
+    }
 
     private fun drawCallOverlay(canvas: Canvas, width: Int, height: Int) {
-        val call = CallInfoProvider.incomingCall.value ?: return
-        if (!call.incoming) return
+        val call = CallInfoProvider.incomingCall.value
+        updateActiveCallTimer(call)
+        val showRecentCard = call == null && phoneCardVisible &&
+            (phoneCardRows.isNotEmpty() || phoneCardLabel.isNotBlank())
+        if (call == null && !showRecentCard) return
         val centerX = width / 2f
-        val centerY = height / 2f
-        val halfWidth = height * 0.30f
-        canvas.drawRoundRect(
-            centerX - halfWidth,
-            centerY - 27f,
-            centerX + halfWidth,
-            centerY + 27f,
-            10f,
-            10f,
-            callOverlayBackground,
-        )
-        val caller = if (call.caller.length > 16) call.caller.take(15) + "..." else call.caller
-        canvas.drawText(caller, centerX, centerY - 2f, callOverlayTitle)
-        canvas.drawText("UP answer | DOWN reject", centerX, centerY + 17f, callOverlayLabel)
+        val halfWidth = width * 0.36f
+        if (call != null) {
+            val right = width - 18f
+            val pillHeight = 74f
+            val bottom = height - 116f
+            val top = bottom - pillHeight
+            val pillWidth = minOf(width * 0.64f, 318f)
+            val left = (right - pillWidth).coerceAtLeast(16f)
+            val radius = pillHeight / 2f
+            val buttonRadius = 15.5f
+            val buttonY = top + pillHeight / 2f
+            val declineX = right - 27f
+            val acceptX = if (call.incoming) declineX - 42f else declineX
+            val textLeft = left + 18f
+            val textRight = acceptX - buttonRadius - 12f
+            val callerChars = (((textRight - textLeft) / 8f).toInt()).coerceIn(8, 22)
+
+            canvas.drawRoundRect(left, top, right, bottom, radius, radius, callOverlayBackground)
+            canvas.drawRoundRect(left, top, right, bottom, radius, radius, callPillBorder)
+            canvas.drawText(if (call.incoming) "Incoming call" else "On call", textLeft, top + 21f, callPillLabel)
+            canvas.drawText(call.caller.ellipsizeForDash(callerChars), textLeft, top + 43f, callPillTitle)
+            if (call.incoming) {
+                canvas.drawText("LEFT answer  RIGHT decline", textLeft, top + 61f, callPillHint)
+                canvas.drawCircle(acceptX, buttonY, buttonRadius, callAcceptButton)
+                drawCallButtonIcon(canvas, acceptX, buttonY, accept = true)
+            } else {
+                canvas.drawText(activeCallElapsedText(), textLeft, top + 62f, callPillRuntime)
+            }
+            canvas.drawCircle(declineX, buttonY, buttonRadius, callDeclineButton)
+            drawCallButtonIcon(canvas, declineX, buttonY, accept = false)
+        } else {
+            val rows = phoneCardRows
+            val selectedIndex = when (phoneMenuMode) {
+                PhoneMenuMode.CATEGORIES -> phoneCategoryIndex
+                PhoneMenuMode.CONTACTS, PhoneMenuMode.CALLING -> phoneRecentIndex
+            }.coerceAtLeast(0)
+            val visibleCount = if (rows.isEmpty()) 1 else minOf(4, rows.size)
+            val first = if (rows.isEmpty()) 0 else {
+                (selectedIndex - visibleCount + 1)
+                    .coerceAtLeast(0)
+                    .coerceAtMost((rows.size - visibleCount).coerceAtLeast(0))
+            }
+            val visibleRows = if (rows.isEmpty()) listOf(phoneCardLabel) else rows.drop(first).take(visibleCount)
+            val rowHeight = 20f
+            val top = height * 0.14f
+            val bottom = top + 42f + visibleRows.size * rowHeight + 20f
+            val left = centerX - halfWidth
+            val right = centerX + halfWidth
+            canvas.drawRoundRect(left, top, right, bottom, 10f, 10f, callOverlayBackground)
+            canvas.drawText(phoneCardTitle.ifBlank { "Phone" }, centerX, top + 24f, callOverlayTitle)
+            canvas.drawLine(left + 18f, top + 33f, right - 18f, top + 33f, callOverlayDivider)
+            visibleRows.forEachIndexed { index, row ->
+                val absoluteIndex = first + index
+                val y = top + 54f + index * rowHeight
+                if (absoluteIndex == selectedIndex && rows.isNotEmpty()) {
+                    canvas.drawRoundRect(left + 28f, y - 15f, right - 28f, y + 4f, 5f, 5f, callOverlaySelected)
+                }
+                canvas.drawText(row.ellipsizeForDash(23), centerX, y, callOverlayRow)
+            }
+            canvas.drawText(phoneCardSubtitle.ellipsizeForDash(30), centerX, bottom - 8f, callOverlayLabel)
+        }
+    }
+
+    private fun drawCallButtonIcon(canvas: Canvas, centerX: Float, centerY: Float, accept: Boolean) {
+        val iconBounds = android.graphics.RectF(centerX - 8f, centerY - 7f, centerX + 8f, centerY + 9f)
+        canvas.save()
+        canvas.rotate(if (accept) -38f else 138f, centerX, centerY)
+        canvas.drawArc(iconBounds, 205f, 130f, false, callButtonIcon)
+        canvas.drawLine(centerX - 8.5f, centerY + 1.5f, centerX - 11f, centerY + 4f, callButtonIcon)
+        canvas.drawLine(centerX + 8.5f, centerY + 1.5f, centerX + 11f, centerY + 4f, callButtonIcon)
+        canvas.restore()
+    }
+
+    private fun updateActiveCallTimer(call: IncomingCall?) {
+        when {
+            call == null -> {
+                activeCallStartedAtMs = 0L
+                activeCallIdentity = ""
+            }
+            call.incoming -> Unit
+            activeCallStartedAtMs == 0L -> {
+                activeCallStartedAtMs = System.currentTimeMillis()
+                activeCallIdentity = call.caller
+            }
+            activeCallIdentity.isBlank() || activeCallIdentity == "On call" -> {
+                activeCallIdentity = call.caller
+            }
+        }
+    }
+
+    private fun activeCallElapsedText(): String {
+        val startedAt = activeCallStartedAtMs
+        val seconds = if (startedAt > 0L) {
+            ((System.currentTimeMillis() - startedAt) / 1000L).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        val hours = seconds / 3600L
+        val minutes = (seconds % 3600L) / 60L
+        val secs = seconds % 60L
+        return if (hours > 0L) {
+            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, secs)
+        } else {
+            String.format(Locale.US, "%02d:%02d", minutes, secs)
+        }
     }
 
     // ── Monotonic route-progress tracker ────────────────────────────────────
@@ -1093,7 +1671,12 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         return NavState(remaining, nextTurn, m.bearing, m.dist > 70.0, m.proj, m.dist, nextMan)
     }
 
+    @SuppressLint("NewApi")
     private fun updateThermal() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (_ui.value.thermal != "OK") _ui.value = _ui.value.copy(thermal = "OK")
+            return
+        }
         val status = runCatching { powerManager.currentThermalStatus }.getOrDefault(PowerManager.THERMAL_STATUS_NONE)
         val label = when (status) {
             PowerManager.THERMAL_STATUS_NONE, PowerManager.THERMAL_STATUS_LIGHT -> "OK"
@@ -1111,8 +1694,47 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         if (meters < 1000.0) meters.toInt().coerceIn(0, 0xFFFF) to DashCommands.NAV_UNIT_METERS
         else (meters / 100.0).toInt().coerceIn(0, 0xFFFF) to DashCommands.NAV_UNIT_KM_TENTHS
 
+    private fun DashRoute.toLegacyRoute(): Route {
+        val cumulative = DoubleArray(geometry.size)
+        for (i in 1 until geometry.size) {
+            cumulative[i] = cumulative[i - 1] + GeoPoint.distMeters(geometry[i - 1], geometry[i])
+        }
+        return Route(
+            geometry = geometry,
+            maneuvers = maneuvers.map {
+                com.example.opendash.dash.nav.Maneuver(
+                    type = it.type.toLegacyType(),
+                    instruction = it.instruction,
+                    location = GeoPoint(it.locationLat, it.locationLng),
+                    cumulativeMeters = it.distanceFromStartMeters,
+                )
+            },
+            totalMeters = totalDistanceMeters,
+            totalSeconds = totalDurationSeconds,
+            cumulative = cumulative,
+        )
+    }
+
+    private fun DashManeuverType.toLegacyType(): com.example.opendash.dash.nav.ManeuverType =
+        when (this) {
+            DashManeuverType.DEPART -> com.example.opendash.dash.nav.ManeuverType.DEPART
+            DashManeuverType.ARRIVE -> com.example.opendash.dash.nav.ManeuverType.ARRIVE
+            DashManeuverType.TURN_LEFT -> com.example.opendash.dash.nav.ManeuverType.TURN_LEFT
+            DashManeuverType.TURN_RIGHT -> com.example.opendash.dash.nav.ManeuverType.TURN_RIGHT
+            DashManeuverType.SLIGHT_LEFT -> com.example.opendash.dash.nav.ManeuverType.SLIGHT_LEFT
+            DashManeuverType.SLIGHT_RIGHT -> com.example.opendash.dash.nav.ManeuverType.SLIGHT_RIGHT
+            DashManeuverType.SHARP_LEFT -> com.example.opendash.dash.nav.ManeuverType.SHARP_LEFT
+            DashManeuverType.SHARP_RIGHT -> com.example.opendash.dash.nav.ManeuverType.SHARP_RIGHT
+            DashManeuverType.UTURN -> com.example.opendash.dash.nav.ManeuverType.UTURN
+            DashManeuverType.ROUNDABOUT -> com.example.opendash.dash.nav.ManeuverType.ROUNDABOUT
+            else -> com.example.opendash.dash.nav.ManeuverType.CONTINUE
+        }
+
     private fun fmtDist(m: Double): String =
         if (m < 1000) "${m.toInt()} m" else "%.1f km".format(m / 1000.0)
+
+    private fun String.ellipsizeForDash(maxChars: Int): String =
+        if (length <= maxChars) this else take((maxChars - 1).coerceAtLeast(0)) + "..."
 
     private fun angleDelta(first: Float, second: Float): Float {
         val delta = (((first - second) % 360f) + 540f) % 360f - 180f
@@ -1121,6 +1743,21 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun teardown() {
         streamJob?.cancel(); streamJob = null
+        phoneCardJob?.cancel(); phoneCardJob = null
+        mediaCardJob?.cancel(); mediaCardJob = null
+        mediaCardVisible = false
+        mediaCardMessage = ""
+        currentMedia = null
+        mediaControlUntilMs = 0L
+        activeCallStartedAtMs = 0L
+        activeCallIdentity = ""
+        phoneCardVisible = false
+        phoneCardTitle = ""
+        phoneCardLabel = ""
+        phoneCardSubtitle = ""
+        phoneCardRows = emptyList()
+        phoneRecentCalls = emptyList()
+        phoneAllCalls = emptyList()
         stopMediaForwarding()
         encoder?.release(); encoder = null
         idleRenderer.release()
@@ -1132,16 +1769,41 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         mediaObserveJob?.cancel()
         mediaObserveJob = viewModelScope.launch {
             launch {
+                while (isActive) {
+                    mediaInfo.refresh()
+                    delay(2_000)
+                }
+            }
+            launch {
                 mediaInfo.nowPlaying.collect { media ->
-                    session.updateNowPlaying(
-                        media?.title,
-                        media?.album.orEmpty(),
-                        media?.artist.orEmpty(),
-                    )
+                    currentMedia = media
+                    if (media != null) {
+                        session.updateNowPlaying(
+                            media.title,
+                            media.album,
+                            media.artist,
+                        )
+                        if (mediaCardVisible || System.currentTimeMillis() < mediaControlUntilMs) {
+                            keepMediaControlMode()
+                            showMediaCard()
+                        }
+                    } else {
+                        if (System.currentTimeMillis() < mediaControlUntilMs) {
+                            publishMediaPlaceholder()
+                            showMediaCard("Playing on phone")
+                        } else {
+                            mediaCardVisible = false
+                            mediaCardMessage = ""
+                            lastSignature = ""
+                            session.updateNowPlaying(null, "", "")
+                        }
+                    }
                 }
             }
             launch {
                 CallInfoProvider.incomingCall.collect { call ->
+                    updateActiveCallTimer(call)
+                    lastSignature = ""
                     session.updateCall(call?.caller)
                 }
             }
@@ -1152,8 +1814,210 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         mediaObserveJob?.cancel()
         mediaObserveJob = null
         mediaInfo.stop()
+        mediaCardJob?.cancel()
+        mediaCardJob = null
+        mediaCardVisible = false
+        mediaCardMessage = ""
+        currentMedia = null
+        mediaControlUntilMs = 0L
+        activeCallStartedAtMs = 0L
+        activeCallIdentity = ""
+        lastSignature = ""
         session.updateNowPlaying(null, "", "")
         session.updateCall(null)
+    }
+
+    private fun requestMediaPlay() {
+        keepMediaControlMode()
+        val ok = mediaInfo.play()
+        publishMediaPlaceholder(if (ok) "Starting music" else "Open player")
+        showMediaCard(if (ok) "Starting music" else "Allow media access")
+        viewModelScope.launch {
+            repeat(6) {
+                delay(650)
+                mediaInfo.refresh()
+                if (mediaInfo.nowPlaying.value != null) return@launch
+            }
+        }
+    }
+
+    private fun keepMediaControlMode(durationMs: Long = 120_000L) {
+        mediaControlUntilMs = System.currentTimeMillis() + durationMs
+    }
+
+    private fun publishMediaPlaceholder(status: String = "Playing on phone") {
+        session.updateNowPlaying("Phone media", status, "OpenDash")
+    }
+
+    private fun showMediaCard(message: String = "") {
+        mediaCardVisible = true
+        mediaCardMessage = message
+        lastSignature = ""
+        scheduleMediaCardTimeout()
+    }
+
+    private fun scheduleMediaCardTimeout() {
+        mediaCardJob?.cancel()
+        mediaCardJob = viewModelScope.launch {
+            delay(if (currentMedia != null) 30_000 else 10_000)
+            mediaCardVisible = false
+            mediaCardMessage = ""
+            lastSignature = ""
+        }
+    }
+
+    private fun showPhoneMenuOnDash(): String {
+        phoneAllCalls = CallInfoProvider.recentCalls(getApplication(), 40)
+        phoneMenuMode = PhoneMenuMode.CATEGORIES
+        phoneCategoryIndex = phoneCategoryIndex.coerceIn(0, PhoneCallCategory.entries.lastIndex)
+        phoneRecentIndex = 0
+        phoneCardVisible = true
+        refreshPhoneCardRows()
+        schedulePhoneCardTimeout()
+        return "Phone menu"
+    }
+
+    private fun stepPhoneCard(delta: Int): String {
+        if (!phoneCardVisible) return showPhoneMenuOnDash()
+        when (phoneMenuMode) {
+            PhoneMenuMode.CATEGORIES -> {
+                phoneCategoryIndex = (phoneCategoryIndex + delta).floorMod(PhoneCallCategory.entries.size)
+            }
+            PhoneMenuMode.CONTACTS -> {
+                if (phoneRecentCalls.isNotEmpty()) {
+                    phoneRecentIndex = (phoneRecentIndex + delta).floorMod(phoneRecentCalls.size)
+                }
+            }
+            PhoneMenuMode.CALLING -> Unit
+        }
+        refreshPhoneCardRows()
+        schedulePhoneCardTimeout()
+        return phoneCardLabel.ifBlank { "Phone" }
+    }
+
+    private fun selectPhoneCardItem(): String =
+        when (phoneMenuMode) {
+            PhoneMenuMode.CATEGORIES -> {
+                phoneMenuMode = PhoneMenuMode.CONTACTS
+                phoneRecentIndex = 0
+                refreshPhoneCardRows()
+                schedulePhoneCardTimeout()
+                phoneCardTitle.ifBlank { "Contacts" }
+            }
+            PhoneMenuMode.CONTACTS -> callSelectedRecent()
+            PhoneMenuMode.CALLING -> phoneCardSubtitle.ifBlank { "Calling" }
+        }
+
+    private fun backOrClosePhoneCard(): String {
+        if (phoneMenuMode == PhoneMenuMode.CONTACTS) {
+            phoneMenuMode = PhoneMenuMode.CATEGORIES
+            refreshPhoneCardRows()
+            schedulePhoneCardTimeout()
+            return "Phone menu"
+        }
+        hidePhoneCard()
+        return "Phone card closed"
+    }
+
+    private fun callSelectedRecent(): String {
+        val call = phoneRecentCalls.getOrNull(phoneRecentIndex)
+        if (call == null) {
+            refreshPhoneCardRows()
+            return "No recent call"
+        }
+        val direct = callController.hasDirectCallPermission()
+        val ok = callController.placeCall(call.number)
+        phoneMenuMode = PhoneMenuMode.CALLING
+        phoneCardLabel = if (ok) call.displayName else "Call failed"
+        phoneCardTitle = "Phone"
+        phoneCardRows = emptyList()
+        phoneCardSubtitle = if (ok) {
+            if (direct) "Call initiating" else "Confirm on phone"
+        } else {
+            if (direct) "Check phone dialer" else "Allow phone permission"
+        }
+        lastSignature = ""
+        schedulePhoneCardTimeout()
+        _ui.value = _ui.value.copy(
+            lastButton = if (ok) "Calling" else "Call failed",
+            errorMessage = if (ok) _ui.value.errorMessage else phoneCardSubtitle,
+        )
+        return if (ok) "Calling ${call.displayName}".take(32) else "Call failed"
+    }
+
+    private fun refreshPhoneCardRows() {
+        when (phoneMenuMode) {
+            PhoneMenuMode.CATEGORIES -> {
+                phoneCardTitle = "Phone"
+                phoneCardRows = PhoneCallCategory.entries.map { it.label }
+                phoneCardLabel = PhoneCallCategory.entries[phoneCategoryIndex].label
+                phoneCardSubtitle = "U/D choose | CLICK open"
+            }
+            PhoneMenuMode.CONTACTS -> {
+                val category = PhoneCallCategory.entries[phoneCategoryIndex]
+                phoneCardTitle = category.label
+                phoneRecentCalls = callsForCategory(category)
+                phoneRecentIndex = phoneRecentIndex.coerceIn(0, (phoneRecentCalls.size - 1).coerceAtLeast(0))
+                phoneCardRows = phoneRecentCalls.map { it.displayName }
+                phoneCardLabel = phoneRecentCalls.getOrNull(phoneRecentIndex)?.displayName
+                    ?: noContactsLabel(category)
+                phoneCardSubtitle = currentPhoneCardHint()
+            }
+            PhoneMenuMode.CALLING -> Unit
+        }
+        lastSignature = ""
+    }
+
+    private fun callsForCategory(category: PhoneCallCategory): List<RecentCall> =
+        when (category) {
+            PhoneCallCategory.MISSED -> phoneAllCalls.filter { it.type == CallLog.Calls.MISSED_TYPE }
+            PhoneCallCategory.RECEIVED -> phoneAllCalls.filter { it.type == CallLog.Calls.INCOMING_TYPE }
+            PhoneCallCategory.DIALED -> phoneAllCalls.filter { it.type == CallLog.Calls.OUTGOING_TYPE }
+            PhoneCallCategory.FAVORITES -> phoneAllCalls
+                .filter { it.number.isNotBlank() }
+                .distinctBy { it.number }
+                .take(5)
+        }.take(5)
+
+    private fun noContactsLabel(category: PhoneCallCategory): String =
+        if (CallInfoProvider.hasCallLogPermission(getApplication())) {
+            "No ${category.label.lowercase(Locale.US)}"
+        } else {
+            "Allow call log"
+        }
+
+    private fun currentPhoneCardHint(): String =
+        when {
+            phoneRecentCalls.isNotEmpty() -> "U/D choose | CLICK call"
+            CallInfoProvider.hasCallLogPermission(getApplication()) -> "No contact to call"
+            else -> "Allow call log on phone"
+        }
+
+    private fun schedulePhoneCardTimeout() {
+        phoneCardJob?.cancel()
+        phoneCardJob = viewModelScope.launch {
+            delay(30_000)
+            if (CallInfoProvider.incomingCall.value == null) {
+                hidePhoneCard()
+            }
+        }
+    }
+
+    private fun Int.floorMod(divisor: Int): Int =
+        ((this % divisor) + divisor) % divisor
+
+    private fun hidePhoneCard() {
+        phoneCardJob?.cancel()
+        phoneCardJob = null
+        phoneCardVisible = false
+        phoneCardTitle = ""
+        phoneCardLabel = ""
+        phoneCardSubtitle = ""
+        phoneCardRows = emptyList()
+        phoneRecentCalls = emptyList()
+        phoneAllCalls = emptyList()
+        phoneMenuMode = PhoneMenuMode.CATEGORIES
+        lastSignature = ""
     }
 
     private fun answerCall(call: IncomingCall) {

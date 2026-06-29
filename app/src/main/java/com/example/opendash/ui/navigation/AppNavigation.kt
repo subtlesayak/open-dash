@@ -44,10 +44,10 @@ sealed class Screen(val route: String) {
     object Vehicles : Screen("vehicles")
     object Expenses : Screen("expenses")
     object Route    : Screen("route")
-    object Dash     : Screen("dash")
     object Garage   : Screen("garage")
     object Rides    : Screen("rides")
     object Settings : Screen("settings")
+    object MapboxDebug : Screen("mapbox_debug")
 }
 
 private data class NavTab(val screen: Screen, val icon: ImageVector, val label: String)
@@ -61,7 +61,7 @@ private val bottomTabs = listOf(
 )
 
 private val bottomRoutes = bottomTabs.map { it.screen.route }
-private val homeChildRoutes = listOf(Screen.Route.route, Screen.Dash.route, Screen.Rides.route)
+private val homeChildRoutes = listOf(Screen.Route.route, Screen.Rides.route)
 private val shellRoutes = bottomRoutes + homeChildRoutes
 
 @Composable
@@ -79,7 +79,6 @@ fun AppNavigation(
     val showBottomNav = currentRoute in shellRoutes
     val canSwipeBottomTabs = currentRoute in bottomRoutes
 
-    val garageTab by appViewModel.garageTab.collectAsState()
     val routeState by routeViewModel.state.collectAsState()
     var handledConnectDashRequest by remember { mutableLongStateOf(0L) }
 
@@ -98,7 +97,7 @@ fun AppNavigation(
         if (d?.lat != null && d.lng != null) dashViewModel.prefetchTiles(d.lat, d.lng)
     }
 
-    // Auto-navigate to Route when a Maps share arrives
+    // Auto-navigate to Route when a shared location arrives.
     LaunchedEffect(routeState.pendingNavigate, currentRoute) {
         if (routeState.pendingNavigate && currentRoute != null && currentRoute != Screen.Login.route) {
             if (currentRoute != Screen.Route.route) {
@@ -116,7 +115,7 @@ fun AppNavigation(
             currentRoute != Screen.Login.route
         ) {
             handledConnectDashRequest = connectDashRequest
-            navController.navigate(Screen.Dash.route) {
+            navController.navigate(Screen.Route.route) {
                 popUpTo(Screen.Home.route) { saveState = true }
                 launchSingleTop = true
                 restoreState = true
@@ -213,13 +212,14 @@ fun AppNavigation(
                         onNavigate = { dest ->
                             when (dest) {
                                 "route" -> navController.navigate(Screen.Route.route)
-                                "dash" -> navController.navigate(Screen.Dash.route)
+                                "dash" -> navController.navigate(Screen.Route.route)
                                 "rides" -> navController.navigate(Screen.Rides.route)
                                 "garage" -> navController.navigate(Screen.Garage.route)
                                 "settings" -> navController.navigate(Screen.Settings.route)
                             }
                         },
                         routeViewModel = routeViewModel,
+                        dashViewModel = dashViewModel,
                     )
                 }
 
@@ -234,6 +234,8 @@ fun AppNavigation(
                 composable(Screen.Route.route) {
                     RouteScreen(
                         routeViewModel = routeViewModel,
+                        dashViewModel = dashViewModel,
+                        connectRequest = connectDashRequest,
                         onBack = { navigateHome() },
                         onSentToDash = { destName ->
                             dashViewModel.setDestination(
@@ -244,26 +246,28 @@ fun AppNavigation(
                             // Start navigation: open the dash view and begin the
                             // WiFi → auth → stream flow (no-op if already streaming).
                             dashViewModel.connect()
-                            navController.navigate(Screen.Dash.route) {
-                                popUpTo(Screen.Home.route)
-                            }
                         },
                     )
                 }
 
-                composable(Screen.Dash.route) {
-                    DashScreen(vm = dashViewModel, connectRequest = connectDashRequest)
-                }
-
                 composable(Screen.Garage.route) {
-                    GarageScreen(
-                        tab = garageTab,
-                        onTabChange = { appViewModel.setGarageTab(it) },
-                    )
+                    GarageScreen()
                 }
 
                 composable(Screen.Rides.route) {
                     RidesScreen()
+                }
+
+                composable(Screen.MapboxDebug.route) {
+                    MapboxNavigationDebugScreen(
+                        originLat = dashUi.riderLat,
+                        originLng = dashUi.riderLng,
+                        onBack = {
+                            navController.navigate(Screen.Settings.route) {
+                                launchSingleTop = true
+                            }
+                        },
+                    )
                 }
 
                 composable(Screen.Settings.route) {
@@ -278,6 +282,11 @@ fun AppNavigation(
                             }
                         },
                         onBack = { navController.navigate(Screen.Home.route) { launchSingleTop = true } },
+                        onOpenMapboxDebug = {
+                            navController.navigate(Screen.MapboxDebug.route) {
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
             }
@@ -301,8 +310,7 @@ private fun transitionDirection(fromRoute: String?, toRoute: String?): Int =
 private fun navOrderIndex(route: String?): Int = when (route) {
     Screen.Home.route -> 0
     Screen.Route.route -> 1
-    Screen.Dash.route -> 2
-    Screen.Rides.route -> 3
+    Screen.Rides.route -> 2
     Screen.Vehicles.route -> 10
     Screen.Expenses.route -> 20
     Screen.Garage.route -> 30

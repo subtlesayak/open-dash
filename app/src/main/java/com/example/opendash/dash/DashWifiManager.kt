@@ -72,6 +72,7 @@ class DashWifiManager(
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var reconnectJob: Job? = null
+    private var ssidPollingJob: Job? = null
     private var wantConnected = false
     private var pendingSsid = ""
     private var pendingPassword = ""
@@ -130,6 +131,7 @@ class DashWifiManager(
 
     // ── Internal ──────────────────────────────────────────────────────────
 
+    @SuppressLint("NewApi")
     private fun requestNetwork() {
         release()
         DebugLog.i(TAG) {
@@ -137,6 +139,17 @@ class DashWifiManager(
                 "(${if (pendingPrefix) "prefix" else "exact"}, password=${if (pendingPassword.isBlank()) "none" else "set"})"
         }
         _state.value = WifiState(status = WifiConnStatus.REQUESTING, ssid = pendingSsid)
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            DebugLog.w(TAG) { "Automatic dash Wi-Fi requires Android 10+" }
+            _state.value = WifiState(
+                status = WifiConnStatus.ERROR,
+                ssid = pendingSsid,
+                error = "Automatic dash Wi‑Fi requires Android 10 or newer.",
+            )
+            wantConnected = false
+            return
+        }
 
         findAlreadyConnectedDashNetwork()?.let { (activeNetwork, activeSsid) ->
             network = activeNetwork
@@ -175,8 +188,12 @@ class DashWifiManager(
                         _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = pendingSsid)
                     }
                     else -> {
-                        DebugLog.w(TAG) { "WiFi callback available but SSID is redacted; waiting for fallback resolution" }
-                        _state.value = WifiState(status = WifiConnStatus.REQUESTING, ssid = pendingSsid)
+                        DebugLog.w(TAG) { "WiFi callback available but SSID is redacted; waiting for exact SSID fallback" }
+                        _state.value = WifiState(
+                            status = WifiConnStatus.REQUESTING,
+                            ssid = pendingSsid,
+                            error = "Connected to dash Wi-Fi; resolving exact SSID…",
+                        )
                     }
                 }
             }
@@ -249,6 +266,7 @@ class DashWifiManager(
     }
 
     /** Read the connected network's SSID (strips the surrounding quotes Android adds). */
+    @SuppressLint("NewApi")
     private fun resolveSsid(network: Network): String {
         val caps = cm.getNetworkCapabilities(network) ?: return ""
         val info = caps.transportInfo as? WifiInfo ?: return ""
@@ -256,25 +274,44 @@ class DashWifiManager(
     }
 
     private fun startAndroid11SsidPolling() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
-        scope.launch {
-            delay(5_000)
-            repeat(6) { attempt ->
+        ssidPollingJob?.cancel()
+        ssidPollingJob = scope.launch {
+            delay(1_000)
+            repeat(12) { attempt ->
                 if (_state.value.status == WifiConnStatus.CONNECTED && resolvedSsid != null) return@launch
                 findAlreadyConnectedDashNetwork()?.let { (activeNetwork, activeSsid) ->
                     network = activeNetwork
                     resolvedSsid = activeSsid
-                    DebugLog.i(TAG) { "Android 11 SSID fallback #${attempt + 1} resolved '${maskSsid(activeSsid)}'" }
+                    DebugLog.i(TAG) { "SSID fallback #${attempt + 1} resolved '${maskSsid(activeSsid)}'" }
                     onSsidResolved?.invoke(activeSsid)
                     _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = activeSsid)
                     return@launch
                 }
+                if (pendingPrefix) {
+                    findDashSsid(pendingSsid)?.let { scannedSsid ->
+                        network?.let { activeNetwork ->
+                            resolvedSsid = scannedSsid
+                            DebugLog.i(TAG) { "SSID scan fallback #${attempt + 1} resolved '${maskSsid(scannedSsid)}'" }
+                            onSsidResolved?.invoke(scannedSsid)
+                            _state.value = WifiState(status = WifiConnStatus.CONNECTED, ssid = scannedSsid)
+                            return@launch
+                        }
+                    }
+                }
                 delay(2_000)
+            }
+            if (pendingPrefix && resolvedSsid == null && wantConnected) {
+                DebugLog.w(TAG) { "Could not resolve exact dash SSID after fallback polling" }
+                _state.value = WifiState(
+                    status = WifiConnStatus.ERROR,
+                    ssid = pendingSsid,
+                    error = "Connected to dash Wi-Fi, but Android hid the exact SSID. Grant Location/Wi‑Fi permissions or enter the dash code manually.",
+                )
             }
         }
     }
 
-    @SuppressLint("MissingPermission")
+    @SuppressLint("MissingPermission", "NewApi")
     private fun findAlreadyConnectedDashNetwork(): Pair<Network, String>? {
         val activeSsid = readActiveWifiSsid()?.takeIf(::matchesPendingSsid) ?: return null
         val wifiNetwork = cm.allNetworks.firstOrNull { candidate ->
@@ -312,6 +349,8 @@ class DashWifiManager(
     }
 
     private fun release() {
+        ssidPollingJob?.cancel()
+        ssidPollingJob = null
         networkCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
         networkCallback = null
         network = null

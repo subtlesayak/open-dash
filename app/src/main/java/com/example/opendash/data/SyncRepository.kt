@@ -244,6 +244,7 @@ class SyncRepository private constructor(context: Context) {
                         "horizontalBias" to slot.horizontalBias.toDouble(),
                         "verticalBias" to slot.verticalBias.toDouble(),
                         "fit" to slot.fit.name,
+                        "preserveRpmArc" to slot.preserveRpmArc,
                     )
                 },
             ),
@@ -426,6 +427,7 @@ class SyncRepository private constructor(context: Context) {
                 horizontalBias = (map.double("horizontalBias") ?: 0.0).toFloat(),
                 verticalBias = (map.double("verticalBias") ?: 0.0).toFloat(),
                 fit = enumValueOrDefault(map.string("fit"), DashWallpaperFit.CROP),
+                preserveRpmArc = map.boolean("preserveRpmArc") ?: false,
             )
         }.orEmpty()
         wallpaperStore.applySettings(
@@ -458,4 +460,7 @@ class SyncRepository private constructor(context: Context) {
             is Int -> value.toDouble()
             else -> null
         }
+
+    private fun Map<*, *>.boolean(key: String): Boolean? =
+        this[key] as? Boolean
 }

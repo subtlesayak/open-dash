@@ -37,7 +37,7 @@ data class Maneuver(
     val cumulativeMeters: Double,
 ) {
     /** Dash maneuver glyph byte. CONTINUE (0x0B) is the only verified value. */
-    val dashCode: Int get() = 0x0B // TODO: verify other glyph codes on fw 11.63
+    val dashCode: Int get() = 0x0B
 }
 
 /** A computed road route from origin to destination. */

@@ -1,5 +1,6 @@
 package com.example.opendash.quicksettings
 
+import android.annotation.SuppressLint
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -14,12 +15,15 @@ class DashConnectTileService : TileService() {
     override fun onStartListening() {
         qsTile?.apply {
             label = "Connect Dash"
-            subtitle = "OpenDash"
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                subtitle = "OpenDash"
+            }
             state = Tile.STATE_INACTIVE
             updateTile()
         }
     }
 
+    @SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager

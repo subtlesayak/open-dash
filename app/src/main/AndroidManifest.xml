@@ -12,6 +12,7 @@
         tools:targetApi="tiramisu" />
     <!-- Android 12 and below fallback -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Keep streaming to the dash with the screen off -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -23,6 +24,12 @@
         tools:targetApi="34" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
 
     <application
         android:name=".OpenDashApplication"
@@ -36,7 +43,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.OpenDash">
 
-        <!-- Map is MapLibre + OpenFreeMap (keyless) — no Google Maps API key needed. -->
+        <!-- Map is MapLibre + OpenFreeMap (keyless). -->
 
         <activity
             android:name=".MainActivity"
@@ -49,7 +56,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Receive "Share" from Google Maps -->
+            <!-- Receive shared locations from other apps. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -59,8 +66,6 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="maps.google.com" />
-                <data android:scheme="https" android:host="goo.gl" />
                 <data android:scheme="geo" />
             </intent-filter>
         </activity>
@@ -93,6 +98,14 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name=".media.PhoneCallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
+            </intent-filter>
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

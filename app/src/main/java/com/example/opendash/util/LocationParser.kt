@@ -13,15 +13,6 @@ object LocationParser {
     private const val MAX_BODY_BYTES = 256 * 1024
     private const val UA = "Mozilla/5.0 (Linux; Android 14; Nothing Phone 3) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
-    private val allowedMapHosts = setOf(
-        "maps.google.com",
-        "www.google.com",
-        "google.com",
-        "maps.app.goo.gl",
-        "goo.gl",
-        "g.co",
-    )
-
     private val urlRegex  = Regex("https?://[^\\s)]+")
     private val coord3d4d = Regex("!3d(-?\\d+\\.\\d+)!4d(-?\\d+\\.\\d+)")
     private val coordAt   = Regex("@(-?\\d+\\.\\d+),(-?\\d+\\.\\d+)")
@@ -32,7 +23,7 @@ object LocationParser {
     private val placePath = Regex("/place/([^/@?]+)")
     private val placeQ    = Regex("[?&]q=([^&0-9\\-@][^&]*)")
 
-    // Body-scan patterns (Google embeds coords in the place page when the URL doesn't carry them).
+    // Body-scan patterns used for non-Google map pages that expose coordinates.
     private val bodyPatterns = listOf(
         coord3d4d,
         Regex("\\[null,null,(-?\\d+\\.\\d{3,}),(-?\\d+\\.\\d{3,})\\]"),
@@ -52,41 +43,38 @@ object LocationParser {
         val url = candidateUrl?.takeIf { isAllowedShareUri(it) }
         val rejectedUrl = candidateUrl != null && url == null
 
-        val isShort = url != null && (
-            url.contains("maps.app.goo.gl") || url.contains("goo.gl/maps") ||
-            url.contains("g.co/kgs") || url.contains("//goo.gl/"))
-
         val textBefore = url?.let { trimmed.substringBefore(it).trim() }
         val textName = textBefore?.lines()?.lastOrNull { it.isNotBlank() }
             ?.removeSuffix(":")?.removePrefix("Check out")?.trim()
 
         val coords = when {
-            url != null && !isShort -> extractCoords(url)
+            url != null -> extractCoords(url)
             rejectedUrl -> null
             else -> extractCoords(trimmed)
         }
 
         val name = when {
             !textName.isNullOrBlank() && textName != "Check out" -> textName
-            url != null && !isShort -> extractPlaceName(url) ?: "Shared location"
+            url != null -> extractPlaceName(url) ?: "Shared location"
             coords != null -> "Dropped pin"
             else -> "Loading…"
         }
 
-        safeLog { "parse() -> name='$name' hasCoords=${coords != null} short=$isShort acceptedUrl=${url != null}" }
+        safeLog { "parse() -> name='$name' hasCoords=${coords != null} acceptedUrl=${url != null}" }
         return SharedLocation(
             name = name,
             lat = coords?.first,
             lng = coords?.second,
             url = url,
-            needsExpansion = (coords == null && url != null),
+            needsExpansion = url != null && coords == null,
         )
     }
 
     /**
-     * Network resolve of a Maps URL → (coords, place-name). Follows redirects,
-     * bypasses consent interstitials, and finally scans the page body for the
-     * coordinates Google embeds there. Run off the main thread.
+     * Network resolve of an accepted map URL → (coords, place-name). This follows only
+     * rider-shared map links and parses coordinates from the redirect/body; it does not
+     * use any Google Maps SDK, Google tiles, or Google Maps web-service API.
+     * Run off the main thread.
      */
     suspend fun resolve(url: String): Pair<Pair<Double, Double>?, String?> = withContext(Dispatchers.IO) {
         if (!isAllowedNetworkUrl(url)) {
@@ -148,14 +136,6 @@ object LocationParser {
         var body = ""
         try {
             repeat(8) { hop ->
-                // Consent interstitial → the real maps URL is in the `continue=` param.
-                if (url.contains("consent.google") || url.contains("/sorry/")) {
-                    Regex("continue=([^&]+)").find(url)?.groupValues?.get(1)?.let {
-                        url = URLDecoder.decode(it, "UTF-8")
-                        if (!isAllowedNetworkUrl(url)) return url to body
-                        safeLog { "consent bypass -> host=${hostOf(url) ?: "unknown"}" }
-                    }
-                }
                 if (!isAllowedNetworkUrl(url)) return url to body
                 val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                     instanceFollowRedirects = false
@@ -194,7 +174,14 @@ object LocationParser {
         val uri = runCatching { URI(value) }.getOrNull() ?: return false
         if (!uri.scheme.equals("https", ignoreCase = true)) return false
         val host = uri.host?.lowercase() ?: return false
-        return host in allowedMapHosts
+        val path = uri.path.orEmpty()
+        return when {
+            host.endsWith("openstreetmap.org") || host.endsWith("osm.org") -> true
+            host == "maps.app.goo.gl" || host == "maps.google.com" -> true
+            host == "goo.gl" -> path.startsWith("/maps")
+            host == "www.google.com" || host == "google.com" -> path.startsWith("/maps")
+            else -> false
+        }
     }
 
     private fun resolvedRedirectUrl(base: String, location: String): String =

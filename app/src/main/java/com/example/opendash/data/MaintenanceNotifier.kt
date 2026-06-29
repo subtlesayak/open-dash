@@ -1,12 +1,16 @@
 package com.example.opendash.data
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import java.util.Calendar
 import kotlin.math.ceil
 
@@ -55,11 +59,17 @@ object MaintenanceNotifier {
         val newlyDue = dueSids - notified
         if (newlyDue.isEmpty()) { prefs.edit().putStringSet(KEY_NOTIFIED, stillKnownDue).apply(); return }
 
-        ensureChannel(ctx)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            prefs.edit().putStringSet(KEY_NOTIFIED, stillKnownDue).apply()   // not flagged → can fire later
+            return
+        }
         if (NotificationManagerCompat.from(ctx).areNotificationsEnabled().not()) {
             prefs.edit().putStringSet(KEY_NOTIFIED, stillKnownDue).apply()   // not flagged → can fire later
             return
         }
+        ensureChannel(ctx)
         prefs.edit().putStringSet(KEY_NOTIFIED, dueSids).apply()   // posting now → remember all due
 
         val (title, text) = buildText(due, odometer)
@@ -102,6 +112,7 @@ object MaintenanceNotifier {
     }
 
     private fun ensureChannel(ctx: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(CHANNEL_ID) == null) {
             nm.createNotificationChannel(
