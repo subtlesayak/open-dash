@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,13 @@ fun Joystick(
 ) {
     var knobOffset by remember { mutableStateOf(Offset.Zero) }
     val maxPx = remember(size) { size.value / 2f - 24f }
+    val primary = MaterialTheme.colorScheme.primary
+    val primaryDim = MaterialTheme.colorScheme.primary.copy(alpha = 0.72f)
+    val surface = MaterialTheme.colorScheme.surfaceContainer
+    val surfaceHigh = MaterialTheme.colorScheme.surfaceContainerHighest
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val guide = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val dimple = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.42f)
 
     Box(
         contentAlignment = Alignment.Center,
@@ -39,10 +47,10 @@ fun Joystick(
             .clip(CircleShape)
             .background(
                 Brush.radialGradient(
-                    colorStops = arrayOf(0f to Surf2, 1f to Surf1),
+                    colorStops = arrayOf(0f to surfaceHigh, 1f to surface),
                 )
             )
-            .border(1.dp, Line2, CircleShape)
+            .border(1.dp, outline, CircleShape)
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
@@ -90,7 +98,7 @@ fun Joystick(
                 Offset(s * 0.86f, s * 0.5f) to Offset(s * 0.68f, s * 0.5f),
             )
             guides.forEach { (start, end) ->
-                drawLine(Line3, start, end, strokeWidth = 2f, cap = StrokeCap.Round)
+                drawLine(guide, start, end, strokeWidth = 2f, cap = StrokeCap.Round)
             }
         }
 
@@ -103,7 +111,7 @@ fun Joystick(
             val r = 22.dp.toPx()
             drawCircle(
                 brush = Brush.linearGradient(
-                    listOf(GoldBright, GoldDeep),
+                    listOf(primary, primaryDim),
                     start = Offset(r * 0.4f, r * 0.4f),
                     end = Offset(r * 1.6f, r * 1.6f),
                 ),
@@ -116,7 +124,7 @@ fun Joystick(
                 style = Stroke(1.dp.toPx()),
             )
             // Dimple
-            drawCircle(Color(0xFF1A1402).copy(alpha = 0.5f), radius = 6.dp.toPx())
+            drawCircle(dimple, radius = 6.dp.toPx())
         }
     }
 }

@@ -24,7 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
  * is cached, so the render loop never re-runs the colour matrix per frame — a key
  * power win at 4 fps.
  *
- * While riding, the process is bound to the Tripper's WiFi (no internet), so tiles
+ * While riding, the process is bound to the dash WiFi (no internet), so tiles
  * must come from cache — [prefetch]/[prefetchRoute] populate it while internet is
  * still reachable. Cache misses fetch through whichever network has connectivity
  * (cellular when bound to the dash WiFi), rate-limited to avoid hot loops.

@@ -30,11 +30,11 @@ data class WifiState(
 )
 
 /**
- * Programmatically connects to the Tripper Dash WiFi hotspot using
+ * Programmatically connects to the dash WiFi hotspot using
  * WifiNetworkSpecifier + ConnectivityManager.requestNetwork().
  *
  * bindProcessToNetwork() routes all UDP/TCP from this process through
- * the Tripper network so packets reach 192.168.1.1 even if the phone
+ * the dash network so packets reach 192.168.1.1 even if the phone
  * has another network (cellular) available.
  *
  * Auto-reconnects on link loss until disconnect() is called.
@@ -92,7 +92,7 @@ class DashWifiManager(
      *
      * @param prefixMatch when true, [ssid] is treated as a PREFIX and Android offers any
      *   matching network (e.g. every `RE_*` dash) — this is what makes OpenDash work on
-     *   any rider's Tripper without hardcoding their SSID. When false, exact-match.
+     *   any rider's dash without hardcoding their SSID. When false, exact-match.
      */
     fun connect(ssid: String, password: String = "", prefixMatch: Boolean = false) {
         wantConnected    = true

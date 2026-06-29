@@ -47,7 +47,7 @@ data class DashUiState(
     val frameCount: Int = 0,
     val lastButton: String? = null,
     val ssid: String = "",            // empty until a dash is discovered/paired (see DashConfig)
-    val wifiPassword: String = "12345678",  // RE Tripper factory passphrase; rider-overridable
+    val wifiPassword: String = "12345678",  // Dash factory passphrase; rider-overridable
     val destinationName: String? = null,
     val errorMessage: String? = null,
     val mapZoom: Int = 19,

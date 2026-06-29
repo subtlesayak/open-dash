@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,9 +45,9 @@ fun HomeScreen(
     val activeVehicleId by VehicleStore.activeVehicleId.collectAsState()
     val activeVehicle = vehicles.firstOrNull { it.id == activeVehicleId } ?: vehicles.first()
     val status = when (conn) {
-        ConnectionState.Connected -> Triple("Connected", "Streaming to Tripper Dash", Gold)
-        ConnectionState.Searching -> Triple("Searching…", "Looking for Tripper Dash", Warn)
-        ConnectionState.Offline   -> Triple("Offline", "Dash not detected", Offline)
+        ConnectionState.Connected -> Triple("Connected", "Streaming to dash", MaterialTheme.colorScheme.primary)
+        ConnectionState.Searching -> Triple("Searching…", "Looking for dash", MaterialTheme.colorScheme.tertiary)
+        ConnectionState.Offline   -> Triple("Offline", "Dash not detected", MaterialTheme.colorScheme.onSurfaceVariant)
     }
     val (statusLabel, statusSub, statusDot) = status
 
@@ -87,7 +88,7 @@ fun HomeScreen(
                 Spacer(Modifier.width(18.dp))
 
                 Column(Modifier.weight(1f)) {
-                    Eyebrow("Compatible Tripper Dash")
+                    Eyebrow("Compatible bike dash")
 
                     Spacer(Modifier.height(7.dp))
 
@@ -99,7 +100,7 @@ fun HomeScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            statusLabel, color = TextHi, fontSize = 19.sp,
+                            statusLabel, color = MaterialTheme.colorScheme.onSurface, fontSize = 19.sp,
                             fontWeight = FontWeight.Bold, fontFamily = GeistFamily,
                             letterSpacing = (-0.38).sp,
                         )
@@ -107,7 +108,7 @@ fun HomeScreen(
 
                     Spacer(Modifier.height(4.dp))
 
-                    Text(statusSub, color = TextMid, fontSize = 13.sp)
+                    Text(statusSub, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
 
                     Spacer(Modifier.height(12.dp))
 
@@ -147,7 +148,7 @@ fun HomeScreen(
             OpenDashCard(modifier = Modifier.fillMaxWidth(), padding = 16.dp) {
                 Text(
                     "No saved destinations yet. Share a place from Google Maps, then tap “Save this destination”.",
-                    color = TextLo, fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
                 )
             }
         } else {

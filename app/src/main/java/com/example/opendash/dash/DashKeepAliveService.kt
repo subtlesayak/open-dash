@@ -26,7 +26,7 @@ import com.example.opendash.util.DebugLog
  *   • PARTIAL_WAKE_LOCK  — CPU keeps running the 4 Hz encoder/RTP loop with
  *     the screen off (otherwise Doze suspends the coroutine → dash times out).
  *   • WifiLock (LOW_LATENCY / HIGH_PERF) — stops WiFi power-save from tearing
- *     down the WifiNetworkSpecifier link to the Tripper hotspot.
+ *     down the WifiNetworkSpecifier link to the dash hotspot.
  *   • Ongoing notification — required for a foreground service; also lets the
  *     rider re-open the app.
  */
@@ -123,7 +123,7 @@ class DashKeepAliveService : Service() {
             nm.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID, "Dash streaming", NotificationManager.IMPORTANCE_LOW
-                ).apply { description = "Keeps the map streaming to the Tripper Dash" }
+                ).apply { description = "Keeps the map streaming to the dash" }
             )
         }
     }
@@ -142,7 +142,7 @@ class DashKeepAliveService : Service() {
 
         return builder
             .setContentTitle("OpenDash — streaming to dash")
-            .setContentText("Map is live on the Tripper. Screen can stay off.")
+            .setContentText("Map is live on the dash. Screen can stay off.")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .setContentIntent(open)

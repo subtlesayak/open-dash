@@ -1,6 +1,6 @@
 # Protocol Freeze
 
-This document marks the Tripper Dash wire protocol as frozen. Product features, UI,
+This document marks the bike dash wire protocol as frozen. Product features, UI,
 rendering, storage, and navigation logic may evolve, but the connection, socket,
 auth, acknowledgement, projection, and RTP behaviors below must not change without
 fresh packet captures and explicit review.
@@ -128,7 +128,7 @@ packetization rules, RTP target, and RTP send path must not change.
 
 ### Approved media/call extension
 
-The upstream RE-matched media and call cards are an explicitly reviewed additive
+The upstream-compatible media and call cards are an explicitly reviewed additive
 exception to this freeze:
 
 - `05 0D` carries NUL-separated now-playing title, album, and artist fields.
