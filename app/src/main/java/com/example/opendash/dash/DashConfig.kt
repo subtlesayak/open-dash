@@ -7,7 +7,19 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import com.example.opendash.data.VehicleStore
 import com.example.opendash.util.DebugLog
+
+data class DashCredentialSnapshot(
+    val vehicleId: String,
+    val ssid: String,
+    val password: String,
+)
+
+data class DashConfigSnapshot(
+    val ssidPrefix: String,
+    val credentials: List<DashCredentialSnapshot>,
+)
 
 /**
  * Per-rider dash WiFi configuration, persisted on-device.
@@ -33,18 +45,63 @@ class DashConfig private constructor(context: Context) {
 
     /** The exact SSID once learned/entered. Empty = not yet known → discover by prefix. */
     var ssid: String
-        get() = prefs.getString(KEY_SSID, "") ?: ""
-        set(v) = prefs.edit().putString(KEY_SSID, v).apply()
+        get() = prefs.getString(vehicleKey(KEY_SSID), null)
+            ?: legacySsidFallback()
+        set(v) = prefs.edit().putString(vehicleKey(KEY_SSID), v).apply()
 
     var password: String
-        get() = prefs.getString(KEY_PASSWORD, DEFAULT_PASSWORD) ?: DEFAULT_PASSWORD
-        set(v) = prefs.edit().putString(KEY_PASSWORD, v).apply()
+        get() = prefs.getString(vehicleKey(KEY_PASSWORD), null)
+            ?: legacyPasswordFallback()
+        set(v) = prefs.edit().putString(vehicleKey(KEY_PASSWORD), v).apply()
 
     /** True until a specific dash has been identified — connect by prefix discovery. */
     val needsDiscovery: Boolean get() = ssid.isBlank()
 
     /** Forget the learned dash so the next connect re-runs prefix discovery. */
     fun forgetDash() { ssid = "" }
+
+    fun exportSnapshot(vehicleIds: List<String>): DashConfigSnapshot =
+        DashConfigSnapshot(
+            ssidPrefix = ssidPrefix,
+            credentials = vehicleIds.map { vehicleId ->
+                DashCredentialSnapshot(
+                    vehicleId = vehicleId,
+                    ssid = prefs.getString(vehicleKey(KEY_SSID, vehicleId), null)
+                        ?: if (vehicleId == VehicleStore.DEFAULT_VEHICLE_ID) legacySsidFallback() else "",
+                    password = prefs.getString(vehicleKey(KEY_PASSWORD, vehicleId), null)
+                        ?: legacyPasswordFallback(),
+                )
+            },
+        )
+
+    fun importSnapshot(snapshot: DashConfigSnapshot) {
+        prefs.edit().apply {
+            putString(KEY_PREFIX, snapshot.ssidPrefix.ifBlank { DEFAULT_PREFIX })
+            snapshot.credentials.forEach { credential ->
+                putString(vehicleKey(KEY_SSID, credential.vehicleId), credential.ssid)
+                putString(
+                    vehicleKey(KEY_PASSWORD, credential.vehicleId),
+                    credential.password.ifBlank { DEFAULT_PASSWORD },
+                )
+            }
+        }.apply()
+    }
+
+    private fun vehicleKey(baseKey: String): String =
+        vehicleKey(baseKey, VehicleStore.activeVehicleId.value)
+
+    private fun vehicleKey(baseKey: String, vehicleId: String): String =
+        "${baseKey}_vehicle_${vehicleId.sanitizePreferenceKey()}"
+
+    private fun legacySsidFallback(): String =
+        if (VehicleStore.activeVehicleId.value == VehicleStore.DEFAULT_VEHICLE_ID) {
+            prefs.getString(KEY_SSID, "") ?: ""
+        } else {
+            ""
+        }
+
+    private fun legacyPasswordFallback(): String =
+        prefs.getString(KEY_PASSWORD, DEFAULT_PASSWORD) ?: DEFAULT_PASSWORD
 
     private fun encryptedPrefsOrFallback(): SharedPreferences {
         return runCatching {
@@ -57,11 +114,14 @@ class DashConfig private constructor(context: Context) {
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-            ).also { migrateLegacyValues(it) }
+            ).also {
+                migrateLegacyValues(it)
+                migrateGlobalCredentialsToActiveVehicle(it)
+            }
         }.getOrElse { error ->
             DebugLog.w(TAG) { "Encrypted dash_config unavailable; using fallback prefs (${error.javaClass.simpleName})" }
             showEncryptionWarning()
-            legacyPrefs
+            legacyPrefs.also { migrateGlobalCredentialsToActiveVehicle(it) }
         }
     }
 
@@ -76,6 +136,20 @@ class DashConfig private constructor(context: Context) {
         legacyPrefs.edit().apply {
             legacyValues.forEach { (key, _) -> remove(key) }
         }.apply()
+    }
+
+    private fun migrateGlobalCredentialsToActiveVehicle(targetPrefs: SharedPreferences) {
+        val activeSsidKey = vehicleKey(KEY_SSID)
+        val activePasswordKey = vehicleKey(KEY_PASSWORD)
+        val globalSsid = targetPrefs.getString(KEY_SSID, null)
+        val globalPassword = targetPrefs.getString(KEY_PASSWORD, null)
+
+        if (!globalSsid.isNullOrBlank() && targetPrefs.getString(activeSsidKey, null).isNullOrBlank()) {
+            targetPrefs.edit().putString(activeSsidKey, globalSsid).apply()
+        }
+        if (!globalPassword.isNullOrBlank() && targetPrefs.getString(activePasswordKey, null).isNullOrBlank()) {
+            targetPrefs.edit().putString(activePasswordKey, globalPassword).apply()
+        }
     }
 
     private fun showEncryptionWarning() {
@@ -104,3 +178,6 @@ class DashConfig private constructor(context: Context) {
             }
     }
 }
+
+private fun String.sanitizePreferenceKey(): String =
+    replace(Regex("[^A-Za-z0-9._-]"), "_")

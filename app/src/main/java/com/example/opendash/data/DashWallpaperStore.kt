@@ -49,6 +49,19 @@ data class DashWallpaperInfo(
     val fit: DashWallpaperFit,
 )
 
+data class DashWallpaperSlotSettings(
+    val slot: Int,
+    val kind: DashWallpaperKind,
+    val horizontalBias: Float,
+    val verticalBias: Float,
+    val fit: DashWallpaperFit,
+)
+
+data class DashWallpaperSettingsSnapshot(
+    val activeSlot: Int,
+    val slots: List<DashWallpaperSlotSettings>,
+)
+
 class DashWallpaperStore(private val context: Context) {
     private val prefs = context.getSharedPreferences("dash_wallpaper", Context.MODE_PRIVATE)
 
@@ -66,6 +79,35 @@ class DashWallpaperStore(private val context: Context) {
         (0 until DashWallpaperPaths.MAX_SLOTS).mapNotNull(::infoForSlot)
 
     fun galleryCount(): Int = allInfos().size
+
+    fun exportSettings(): DashWallpaperSettingsSnapshot =
+        DashWallpaperSettingsSnapshot(
+            activeSlot = prefs.getInt("active_slot", currentInfo()?.slot ?: 0),
+            slots = allInfos().map {
+                DashWallpaperSlotSettings(
+                    slot = it.slot,
+                    kind = it.kind,
+                    horizontalBias = it.horizontalBias,
+                    verticalBias = it.verticalBias,
+                    fit = it.fit,
+                )
+            },
+        )
+
+    fun applySettings(snapshot: DashWallpaperSettingsSnapshot) {
+        val editor = prefs.edit()
+        val activeSlot = snapshot.activeSlot.coerceIn(0, DashWallpaperPaths.MAX_SLOTS - 1)
+        if (infoForSlot(activeSlot) != null) editor.putInt("active_slot", activeSlot)
+        snapshot.slots.forEach { slot ->
+            if (infoForSlot(slot.slot) == null) return@forEach
+            editor
+                .putString("kind_${slot.slot}", slot.kind.name)
+                .putFloat("crop_x_${slot.slot}", slot.horizontalBias)
+                .putFloat("crop_y_${slot.slot}", slot.verticalBias)
+                .putString("fit_${slot.slot}", slot.fit.name)
+        }
+        editor.apply()
+    }
 
     fun cycle(delta: Int): DashWallpaperInfo? {
         val items = allInfos()

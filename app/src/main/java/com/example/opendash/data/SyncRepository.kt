@@ -1,6 +1,9 @@
 package com.example.opendash.data
 
 import android.content.Context
+import com.example.opendash.dash.DashConfig
+import com.example.opendash.dash.DashConfigSnapshot
+import com.example.opendash.dash.DashCredentialSnapshot
 import com.example.opendash.util.DebugLog
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.CollectionReference
@@ -35,7 +38,10 @@ class SyncRepository private constructor(context: Context) {
             instance ?: synchronized(this) { instance ?: SyncRepository(context.applicationContext).also { instance = it } }
     }
 
-    private val db = OpenDashDb.get(context)
+    private val appContext = context.applicationContext
+    private val db = OpenDashDb.get(appContext)
+    private val dashConfig = DashConfig.get(appContext)
+    private val wallpaperStore = DashWallpaperStore(appContext)
     // Firebase is optional (bring-your-own-project). When no google-services.json was
     // bundled, these stay null and every mirror/listen call is a no-op — the app runs
     // fully local. See [FirebaseGate].
@@ -104,6 +110,12 @@ class SyncRepository private constructor(context: Context) {
         db.upsertExpense(e); pushExpense(e); bump()
     }
     fun deleteExpense(e: Expense) { db.deleteExpenseBySid(e.sid); userDoc()?.collection("expenses")?.document(e.sid)?.delete(); bump() }
+
+    fun upsertExpense(e: Expense) {
+        db.upsertExpense(e)
+        pushExpense(e)
+        bump()
+    }
 
     fun addMaintenance(
         name: String,
@@ -176,6 +188,69 @@ class SyncRepository private constructor(context: Context) {
                 "endLat" to r.endLat, "endLng" to r.endLng))
     }
 
+    fun pushProfileSettings() {
+        val u = userDoc() ?: return
+        pushVehicleSettings(u)
+        pushDashSettings(u)
+        pushWallpaperSettings(u)
+    }
+
+    private fun pushVehicleSettings(u: DocumentReference) {
+        val snapshot = VehicleStore.snapshot()
+        u.collection("settings").document("vehicles").set(
+            mapOf(
+                "activeVehicleId" to snapshot.activeVehicleId,
+                "updatedMs" to System.currentTimeMillis(),
+                "vehicles" to snapshot.vehicles.map { vehicle ->
+                    mapOf(
+                        "id" to vehicle.id,
+                        "title" to vehicle.title,
+                        "nickname" to vehicle.nickname,
+                        "puc" to vehicle.puc,
+                        "insurance" to vehicle.insurance,
+                        "service" to vehicle.service,
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun pushDashSettings(u: DocumentReference) {
+        val snapshot = dashConfig.exportSnapshot(VehicleStore.vehicles.value.map { it.id })
+        u.collection("settings").document("dash").set(
+            mapOf(
+                "ssidPrefix" to snapshot.ssidPrefix,
+                "updatedMs" to System.currentTimeMillis(),
+                "credentials" to snapshot.credentials.map { credential ->
+                    mapOf(
+                        "vehicleId" to credential.vehicleId,
+                        "ssid" to credential.ssid,
+                        "password" to credential.password,
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun pushWallpaperSettings(u: DocumentReference) {
+        val snapshot = wallpaperStore.exportSettings()
+        u.collection("settings").document("wallpaper").set(
+            mapOf(
+                "activeSlot" to snapshot.activeSlot,
+                "updatedMs" to System.currentTimeMillis(),
+                "slots" to snapshot.slots.map { slot ->
+                    mapOf(
+                        "slot" to slot.slot,
+                        "kind" to slot.kind.name,
+                        "horizontalBias" to slot.horizontalBias.toDouble(),
+                        "verticalBias" to slot.verticalBias.toDouble(),
+                        "fit" to slot.fit.name,
+                    )
+                },
+            ),
+        )
+    }
+
     // ── Sync lifecycle ───────────────────────────────────────────────────
     fun startSync() {
         val u = userDoc() ?: return
@@ -241,6 +316,8 @@ class SyncRepository private constructor(context: Context) {
                 }
             }
         }
+
+        syncProfileSettings(u)
     }
 
     fun stopSync() { regs.forEach { it.remove() }; regs.clear() }
@@ -266,4 +343,120 @@ class SyncRepository private constructor(context: Context) {
             }
         }
     }
+
+    private fun syncProfileSettings(u: DocumentReference) {
+        listenSettingsDoc(
+            doc = u.collection("settings").document("vehicles"),
+            pushLocal = { pushVehicleSettings(u) },
+            applyRemote = ::applyVehicleSettings,
+        )
+        listenSettingsDoc(
+            doc = u.collection("settings").document("dash"),
+            pushLocal = { pushDashSettings(u) },
+            applyRemote = ::applyDashSettings,
+        )
+        listenSettingsDoc(
+            doc = u.collection("settings").document("wallpaper"),
+            pushLocal = { pushWallpaperSettings(u) },
+            applyRemote = ::applyWallpaperSettings,
+        )
+    }
+
+    private fun listenSettingsDoc(
+        doc: DocumentReference,
+        pushLocal: () -> Unit,
+        applyRemote: (DocumentSnapshot) -> Unit,
+    ) {
+        doc.get().addOnSuccessListener { snap ->
+            if (!snap.exists()) io.launch { pushLocal() }
+        }
+        regs += doc.addSnapshotListener { snap, err ->
+            if (err != null || snap?.exists() != true) return@addSnapshotListener
+            io.launch {
+                applyRemote(snap)
+                bump()
+            }
+        }
+    }
+
+    private fun applyVehicleSettings(doc: DocumentSnapshot) {
+        val vehicles = (doc.get("vehicles") as? List<*>)?.mapNotNull { raw ->
+            val map = raw as? Map<*, *> ?: return@mapNotNull null
+            VehicleProfile(
+                id = map.string("id").ifBlank { return@mapNotNull null },
+                title = map.string("title").ifBlank { "Motorcycle" },
+                nickname = map.string("nickname"),
+                puc = map.string("puc").ifBlank { "Not set" },
+                insurance = map.string("insurance").ifBlank { "Not set" },
+                service = map.string("service").ifBlank { "Not set" },
+            )
+        }.orEmpty()
+        if (vehicles.isEmpty()) return
+        VehicleStore.applySnapshot(
+            appContext,
+            VehicleStoreSnapshot(
+                vehicles = vehicles,
+                activeVehicleId = doc.getString("activeVehicleId") ?: vehicles.first().id,
+            ),
+        )
+    }
+
+    private fun applyDashSettings(doc: DocumentSnapshot) {
+        val credentials = (doc.get("credentials") as? List<*>)?.mapNotNull { raw ->
+            val map = raw as? Map<*, *> ?: return@mapNotNull null
+            DashCredentialSnapshot(
+                vehicleId = map.string("vehicleId").ifBlank { return@mapNotNull null },
+                ssid = map.string("ssid"),
+                password = map.string("password"),
+            )
+        }.orEmpty()
+        dashConfig.importSnapshot(
+            DashConfigSnapshot(
+                ssidPrefix = doc.getString("ssidPrefix") ?: DashConfig.DEFAULT_PREFIX,
+                credentials = credentials,
+            ),
+        )
+    }
+
+    private fun applyWallpaperSettings(doc: DocumentSnapshot) {
+        val slots = (doc.get("slots") as? List<*>)?.mapNotNull { raw ->
+            val map = raw as? Map<*, *> ?: return@mapNotNull null
+            DashWallpaperSlotSettings(
+                slot = map.long("slot")?.toInt() ?: return@mapNotNull null,
+                kind = enumValueOrDefault(map.string("kind"), DashWallpaperKind.IMAGE),
+                horizontalBias = (map.double("horizontalBias") ?: 0.0).toFloat(),
+                verticalBias = (map.double("verticalBias") ?: 0.0).toFloat(),
+                fit = enumValueOrDefault(map.string("fit"), DashWallpaperFit.CROP),
+            )
+        }.orEmpty()
+        wallpaperStore.applySettings(
+            DashWallpaperSettingsSnapshot(
+                activeSlot = (doc.getLong("activeSlot") ?: 0L).toInt(),
+                slots = slots,
+            ),
+        )
+    }
+
+    private inline fun <reified T : Enum<T>> enumValueOrDefault(name: String, fallback: T): T =
+        runCatching { enumValueOf<T>(name) }.getOrDefault(fallback)
+
+    private fun Map<*, *>.string(key: String): String =
+        (this[key] as? String).orEmpty()
+
+    private fun Map<*, *>.long(key: String): Long? =
+        when (val value = this[key]) {
+            is Long -> value
+            is Int -> value.toLong()
+            is Double -> value.toLong()
+            else -> null
+        }
+
+    private fun Map<*, *>.double(key: String): Double? =
+        when (val value = this[key]) {
+            is Double -> value
+            is Float -> value.toDouble()
+            is Long -> value.toDouble()
+            is Int -> value.toDouble()
+            else -> null
+        }
 }

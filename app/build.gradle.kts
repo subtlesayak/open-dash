@@ -5,13 +5,52 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     // Firebase is OPTIONAL / bring-your-own-project: the Google Services plugin is only
-    // applied when a google-services.json is present. Without it the app builds and runs
-    // fully local (no sync) — a rider who doesn't want multi-device sync just omits the
-    // file. To enable sync, drop your own Firebase project's google-services.json in app/.
+    // applied when google-services.json contains a client for the requested package.
+    // Without it the app builds and runs fully local (no sync).
     alias(libs.plugins.google.services) apply false
 }
 
-if (project.file("google-services.json").exists()) {
+val localApplicationId = "com.opendash.app"
+val playApplicationId = "com.subtlesayak.opendash"
+val debugApplicationIdSuffix = ".mui3"
+val googleServicesFile = project.file("google-services.json")
+val firebaseClientPackages = if (googleServicesFile.exists()) {
+    """"package_name"\s*:\s*"([^"]+)"""".toRegex()
+        .findAll(googleServicesFile.readText())
+        .map { it.groupValues[1] }
+        .toSet()
+} else {
+    emptySet()
+}
+val requestedTasks = gradle.startParameter.taskNames
+val firebaseFlavorNames = listOf("local", "play")
+val requestedTaskMentionsFirebaseFlavor = requestedTasks.any { task ->
+    firebaseFlavorNames.any { flavor -> task.contains(flavor, ignoreCase = true) }
+}
+val requestedFirebasePackageCandidates = mutableSetOf<String>().apply {
+    fun addFlavor(flavorName: String, applicationId: String) {
+        val mentionsFlavor = requestedTasks.isEmpty() ||
+            !requestedTaskMentionsFirebaseFlavor ||
+            requestedTasks.any { it.contains(flavorName, ignoreCase = true) }
+        if (!mentionsFlavor) return
+        val debugRequested = requestedTasks.isEmpty() ||
+            requestedTasks.any { it.contains("debug", ignoreCase = true) }
+        val releaseRequested = requestedTasks.isEmpty() ||
+            requestedTasks.any { task ->
+                task.contains("release", ignoreCase = true) ||
+                    task.contains("bundle", ignoreCase = true)
+            }
+        if (debugRequested) add(applicationId + debugApplicationIdSuffix)
+        if (releaseRequested) add(applicationId)
+        add(applicationId)
+    }
+    addFlavor("local", localApplicationId)
+    addFlavor("play", playApplicationId)
+}
+val hasFirebaseConfig = requestedFirebasePackageCandidates.any { it in firebaseClientPackages }
+val buildingBundle = requestedTasks.any { it.contains("bundle", ignoreCase = true) }
+
+if (hasFirebaseConfig) {
     apply(plugin = "com.google.gms.google-services")
 }
 
@@ -37,11 +76,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.opendash.app"
+        applicationId = localApplicationId
         minSdk = 24
         targetSdk = 36
-        versionCode = 16
-        versionName = "1.3.1"
+        versionCode = 17
+        versionName = "1.3.4"
 
         buildConfigField(
             "String",
@@ -50,6 +89,18 @@ android {
         )
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("local") {
+            dimension = "distribution"
+            applicationId = localApplicationId
+        }
+        create("play") {
+            dimension = "distribution"
+            applicationId = playApplicationId
+        }
     }
 
     val releaseStoreFilePath = providers.gradleProperty("OPENDASH_RELEASE_STORE_FILE").orNull
@@ -117,10 +168,23 @@ android {
     // The universal artifact remains available for simple local/debug installation.
     splits {
         abi {
-            isEnable = true
+            isEnable = !buildingBundle
             reset()
             include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             isUniversalApk = true
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val variantApplicationId = variant.applicationId.get()
+        if (hasFirebaseConfig && variantApplicationId !in firebaseClientPackages) {
+            val taskVariantName = variant.name.replaceFirstChar {
+                if (it.isLowerCase()) it.titlecase() else it.toString()
+            }
+            tasks.matching { it.name == "process${taskVariantName}GoogleServices" }
+                .configureEach { enabled = false }
         }
     }
 }

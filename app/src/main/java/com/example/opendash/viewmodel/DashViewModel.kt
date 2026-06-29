@@ -365,12 +365,21 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ── Dash WiFi config (Settings) ──────────────────────────────────────────
-    fun setSsid(s: String) { dashConfig.ssid = s.trim(); _ui.value = _ui.value.copy(ssid = s.trim()) }
-    fun setWifiPassword(p: String) { dashConfig.password = p; _ui.value = _ui.value.copy(wifiPassword = p) }
+    fun setSsid(s: String) {
+        dashConfig.ssid = s.trim()
+        _ui.value = _ui.value.copy(ssid = s.trim())
+        pushProfileSettings()
+    }
+    fun setWifiPassword(p: String) {
+        dashConfig.password = p
+        _ui.value = _ui.value.copy(wifiPassword = p)
+        pushProfileSettings()
+    }
     /** Forget the paired dash so the next connect rediscovers any RE_* dash by prefix. */
     fun forgetDash() {
         dashConfig.forgetDash()
         _ui.value = _ui.value.copy(ssid = "", pendingPairingSsid = null)
+        pushProfileSettings()
     }
 
     fun confirmDiscoveredDash() {
@@ -378,6 +387,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         if (ssid.isBlank()) return
         dashConfig.ssid = ssid
         _ui.value = _ui.value.copy(ssid = ssid, pendingPairingSsid = null, errorMessage = null)
+        pushProfileSettings()
         if (!userWantsConnection) return
         when (wifiManager.state.value.status) {
             WifiConnStatus.CONNECTED -> connectSessionWhenSsidResolved()
@@ -433,6 +443,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             }.onSuccess { info ->
                     invalidateWallpaperFrame()
                     publishWallpaper(info, saving = false, error = null)
+                    pushProfileSettings()
                 }
                 .onFailure { err ->
                     val msg = err.message ?: "Unable to save wallpaper"
@@ -456,6 +467,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             }.onSuccess { info ->
                 invalidateWallpaperFrame()
                 publishWallpaper(info, saving = false, error = null)
+                pushProfileSettings()
             }.onFailure { err ->
                 val msg = err.message ?: "Unable to save wallpapers"
                 _ui.update {
@@ -482,6 +494,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             }.onSuccess { info ->
                 invalidateWallpaperFrame()
                 publishWallpaper(info, saving = false, error = null)
+                pushProfileSettings()
             }.onFailure { err ->
                 val msg = err.message ?: "Unable to update wallpaper"
                 _ui.update {
@@ -500,6 +513,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
             val next = wallpaperStore.clearCurrent()
             invalidateWallpaperFrame()
             publishWallpaper(next, saving = false, error = null)
+            pushProfileSettings()
         }
     }
 
@@ -511,6 +525,13 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
         val next = wallpaperStore.cycle(delta)
         invalidateWallpaperFrame()
         publishWallpaper(next)
+        pushProfileSettings()
+    }
+
+    private fun pushProfileSettings() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { repo.pushProfileSettings() }
+        }
     }
 
     private fun invalidateWallpaperFrame() {
