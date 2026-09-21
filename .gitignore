@@ -1,0 +1,46 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+/.idea/
+.DS_Store
+.claude/settings.local.json
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+key.properties
+keys.properties
+kays.properties
+
+# Firebase is bring-your-own-project — each user drops in their own (the build runs
+# fully local without it). Never commit the author's config to a public repo.
+google-services.json
+app/google-services.json
+
+# Distributable APKs live on GitHub Releases, not in the repo.
+/dist/
+*.apk
+*.aab
+*.jks
+*.keystore
+*.log
+firebase-debug.log
+crashlytics-build.properties
+*.hprof
+*.dmp
+*.stacktrace
+crash_exports/
+crash-exports/
+crashlytics/
+captures/
+opendash_expenses_audit.png
+
+# GSD planning docs are local-only for this recovery pass.
+.planning/

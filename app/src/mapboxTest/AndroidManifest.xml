@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:icon="@drawable/ic_launcher_mapbox_test"
+        android:roundIcon="@drawable/ic_launcher_mapbox_test"
+        tools:replace="android:icon,android:roundIcon" />
+</manifest>

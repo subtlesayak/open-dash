@@ -1,0 +1,229 @@
+package com.example.opendash.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
+import com.example.opendash.BuildConfig
+import com.example.opendash.ui.OpenDashIcons
+import com.example.opendash.ui.components.BtnShape
+import com.example.opendash.ui.theme.*
+import com.example.opendash.viewmodel.AuthViewModel
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import kotlinx.coroutines.launch
+
+@Composable
+fun LoginScreen(
+    authViewModel: AuthViewModel,
+    onSignedIn: () -> Unit,
+    onSkip: () -> Unit,
+) {
+    val authState by authViewModel.state.collectAsState()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var cmError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(authState.isSignedIn) {
+        if (authState.isSignedIn) onSignedIn()
+    }
+
+    fun launchGoogleSignIn() {
+        cmError = null
+        if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isBlank()) {
+            cmError = "Google sign-in is not configured for this build"
+            return
+        }
+        scope.launch {
+            try {
+                val credentialManager = CredentialManager.create(context)
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(
+                        GetSignInWithGoogleOption.Builder(BuildConfig.GOOGLE_WEB_CLIENT_ID).build()
+                    )
+                    .build()
+                val result = credentialManager.getCredential(context, request)
+                val credential = result.credential
+                if (credential is CustomCredential &&
+                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    authViewModel.signInWithGoogle(googleCredential.idToken)
+                }
+            } catch (e: GetCredentialException) {
+                cmError = e.message ?: "Google sign-in failed"
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 22.dp),
+        ) {
+            // Brand
+            Column(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(132.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        OpenDashIcons.Dash,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(68.dp),
+                    )
+                }
+
+                Spacer(Modifier.height(30.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "OpenDash",
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontFamily = GeistMonoFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 32.sp,
+                        letterSpacing = 0.16.sp,
+                    )
+                    Spacer(Modifier.width(9.dp))
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                Text(
+                    "Your ride's co-pilot.\nRoutes to the dash, eyes on the road.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp,
+                    lineHeight = 21.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = 250.dp),
+                )
+            }
+
+            // Auth
+            Column(modifier = Modifier.padding(bottom = 40.dp)) {
+                val displayError = authState.error ?: cmError
+                if (displayError != null) {
+                    Text(
+                        displayError,
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(bottom = 12.dp),
+                    )
+                }
+
+                val loading = authState.loading
+                // Google sign-in only when Firebase is configured (bring-your-own-project).
+                if (authState.syncAvailable) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Button(
+                            onClick = { launchGoogleSignIn() },
+                            enabled = !loading,
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            shape = BtnShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary,
+                                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        ) {
+                            Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                if (loading) "Signing in…" else "Continue with Google",
+                                fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(14.dp))
+                }
+
+                // Always available: use the app locally without an account (no sync).
+                OutlinedButton(
+                    onClick = onSkip,
+                    enabled = !loading,
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = BtnShape,
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                ) {
+                    Text(
+                        if (authState.syncAvailable) "Continue without signing in" else "Continue",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+                Spacer(Modifier.height(18.dp))
+
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Box(
+                        Modifier
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                    Spacer(Modifier.width(7.dp))
+                    Text(
+                        if (authState.syncAvailable) "Sign in to sync across devices · data stays local otherwise"
+                        else "Local only · add a Firebase project to sync across devices",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 12.5.sp,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}

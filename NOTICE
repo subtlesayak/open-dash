@@ -1,0 +1,30 @@
+OpenDash
+Copyright 2026 Subtle Sayak and contributors
+
+OpenDash is an independent, unofficial open-source project.
+
+The application originated from and retains portions adapted from:
+
+NorthStar
+Copyright 2026 Aditya Dasika
+https://github.com/adityadasika21/NorthStar
+Licensed under the Apache License, Version 2.0.
+
+NorthStar credits:
+
+better-dash
+https://github.com/norbertFeron/better-dash
+Licensed under the Apache License, Version 2.0.
+
+The current OpenDash source distribution excludes motorcycle-dashboard pairing,
+authentication, projection, streaming, hardware control, and dashboard-wallpaper
+playback implementations. The retained application is focused on independent
+phone-app features including route preview, vehicles, maintenance, garage,
+expenses, ride history, themes, and downloadable phone wallpapers.
+
+Third-party names and product names remain the property of their respective
+owners. Their descriptive appearance in maintenance-source records does not
+indicate affiliation, endorsement, sponsorship, or approval.
+
+No proprietary manufacturer source code, assets, credentials, certificates,
+logos, or confidential material should be included in this repository.
